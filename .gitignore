@@ -1,0 +1,19 @@
+# Build output
+_build/
+*.hex
+*.elf
+*.bin
+*.map
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# SDK (if included)
+nrf5_sdk/
