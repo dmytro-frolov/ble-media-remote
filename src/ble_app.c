@@ -10,6 +10,7 @@
 #include "nrf_log.h"
 #include "nrf_ble_gatt.h"
 #include "nrf_ble_qwr.h"
+#include "ble.h"
 #include "ble_advertising.h"
 #include "ble_conn_params.h"
 #include "ble_stack.h"
@@ -75,7 +76,7 @@ static void on_conn_params_evt(ble_conn_params_evt_t * p_evt)
 
     if (p_evt->evt_type == BLE_CONN_PARAMS_EVT_FAILED)
     {
-        err_code = sd_ble_gap_disconnect(m_advertising.conn_handle, BLE_HCI_CONN_INTERVAL_UNACCEPTABLE);
+        err_code = sd_ble_gap_disconnect(p_evt->conn_handle, BLE_HCI_CONN_INTERVAL_UNACCEPTABLE);
         APP_ERROR_CHECK(err_code);
     }
 }
@@ -151,7 +152,7 @@ static void advertising_init(void)
     init.config.ble_adv_fast_enabled  = true;
     init.config.ble_adv_fast_interval  = APP_ADV_INTERVAL;
     init.config.ble_adv_fast_timeout  = APP_ADV_DURATION;
-    init.config.ble_adv_on_disconnect_enabled = true;
+    init.config.ble_adv_on_disconnect_disabled = false;
 
     init.evt_handler = on_adv_evt;
 
@@ -165,8 +166,6 @@ static void advertising_init(void)
  */
 void ble_app_on_ble_evt(ble_evt_t const * p_ble_evt)
 {
-    uint32_t err_code;
-
     switch (p_ble_evt->header.evt_id)
     {
         case BLE_GAP_EVT_CONNECTED:
@@ -179,11 +178,6 @@ void ble_app_on_ble_evt(ble_evt_t const * p_ble_evt)
             // TODO: Add LED indication if needed
             break;
 
-        case BLE_GAP_EVT_CONN_PARAM_UPDATE:
-            err_code = ble_conn_params_on_ble_evt(p_ble_evt);
-            APP_ERROR_CHECK(err_code);
-            break;
-
         default:
             // No implementation needed.
             break;
@@ -194,8 +188,6 @@ void ble_app_on_ble_evt(ble_evt_t const * p_ble_evt)
  */
 uint32_t ble_app_init(void)
 {
-    uint32_t err_code;
-
     // Initialize GATT
     gatt_init();
 
@@ -231,7 +223,7 @@ uint32_t ble_app_advertising_stop(void)
 {
     uint32_t err_code;
 
-    err_code = ble_advertising_stop(&m_advertising);
+    err_code = sd_ble_gap_adv_stop(m_advertising.adv_handle);
     APP_ERROR_CHECK(err_code);
 
     return NRF_SUCCESS;

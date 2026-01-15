@@ -8,8 +8,9 @@
  */
 
 #include "media_remote.h"
-#include "nrf_log.h"
+#include "ble.h"
 #include "app_error.h"
+#include "nrf_log.h"
 
 // TODO: Implement BLE HID service for media control
 // This will require:

@@ -9,11 +9,12 @@
 #include "nrf_sdh_ble.h"
 #include "nrf_ble_gatt.h"
 #include "nrf_pwr_mgmt.h"
+#include "ble_gatt.h"
 #include "app_error.h"
 #include "nrf_log.h"
 #include "ble_app.h"
 
-#define NRF_BLE_MAX_MTU_SIZE   GATT_MTU_SIZE_DEFAULT                        /**< MTU size used in the softdevice enabling and in the BLE GATT module. */
+#define NRF_BLE_MAX_MTU_SIZE   BLE_GATT_ATT_MTU_DEFAULT                     /**< MTU size used in the softdevice enabling and in the BLE GATT module. */
 #define APP_BLE_OBSERVER_PRIO  3                                            /**< Application's BLE observer priority. */
 
 static nrf_ble_gatt_t m_gatt;                                              /**< GATT module instance. */

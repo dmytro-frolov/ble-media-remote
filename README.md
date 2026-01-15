@@ -8,10 +8,12 @@ A Bluetooth Low Energy (BLE) remote control application for iOS devices, built u
 
 1. **nRF5 SDK v17.1.0** (or later)
    - Download from: https://www.nordicsemi.com/Software-and-tools/Software/nRF5-SDK
+   Note: Download `nrf5_sdk_17.1.0_ddde560.zip`
    - Extract to a location of your choice (e.g., `~/nrf5_sdk`)
 
 2. **GNU ARM Embedded Toolchain**
    - Download from: https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm
+   Note: Download `gcc-arm-none-eabi-10.3-2021.10-mac.tar.bz2`
    - Install to `/usr/local/gcc-arm-none-eabi-10.3-2021.10` (or update path in Makefile)
    - Or install via Homebrew: `brew install arm-none-eabi-gcc`
 
@@ -75,7 +77,7 @@ Run the setup script to check and install dependencies:
    ```bash
    # The config/sdk_config.h is minimal. For a complete configuration,
    # copy from an nRF5 SDK example:
-   cp <SDK_ROOT>/examples/ble_peripheral/ble_app_uart/pca10056/s140/armgcc/config/sdk_config.h config/
+  cp <SDK_ROOT>/examples/ble_peripheral/ble_app_uart/pca10056/s140/config/sdk_config.h config/
    ```
 
 6. **Build the project:**
