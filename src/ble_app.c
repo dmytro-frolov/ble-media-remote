@@ -17,7 +17,7 @@
 #include "app_error.h"
 #include "app_timer.h"
 
-#define DEVICE_NAME                     "Media Remote"                    /**< Name of device. Will be included in the advertising data. */
+#define DEVICE_NAME                     "nice!nano Remote"                /**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME               "NordicSemiconductor"             /**< Manufacturer. Will be passed to Device Information Service. */
 #define APP_ADV_INTERVAL                1600                               /**< The advertising interval (in units of 0.625 ms; this value corresponds to 1 second). */
 #define APP_ADV_DURATION                18000                              /**< The advertising duration (180 seconds) in units of 10 milliseconds. */

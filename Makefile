@@ -7,9 +7,9 @@
 # Project name
 PROJECT_NAME := ble_media_remote
 
-# SDK version and path
-SDK_VERSION := 17.1.0
-SDK_ROOT := $(HOME)/nrf5_sdk/nRF5_SDK_$(SDK_VERSION)_ddde560
+# SDK version and path (SDK 15.3.0 for S140 v6.1.1 compatibility)
+SDK_VERSION := 15.3.0
+SDK_ROOT := $(HOME)/nrf5_sdk/nRF5_SDK_$(SDK_VERSION)_59ac345
 
 # Toolchain path (update this to match your installation)
 # Set this to the directory that contains arm-none-eabi-gcc.
@@ -40,8 +40,7 @@ SRC_FILES += \
   $(SDK_ROOT)/components/libraries/util/app_error_weak.c \
   $(SDK_ROOT)/components/libraries/util/app_util_platform.c \
   $(SDK_ROOT)/components/libraries/util/nrf_assert.c \
-  $(SDK_ROOT)/components/libraries/timer/app_timer2.c \
-  $(SDK_ROOT)/components/libraries/timer/drv_rtc.c \
+  $(SDK_ROOT)/components/libraries/timer/app_timer.c \
   $(SDK_ROOT)/components/libraries/atomic/nrf_atomic.c \
   $(SDK_ROOT)/components/libraries/atomic_fifo/nrf_atfifo.c \
   $(SDK_ROOT)/components/libraries/atomic_flags/nrf_atflags.c \
@@ -123,20 +122,19 @@ SOFTDEVICE_HEX := $(SDK_ROOT)/components/softdevice/$(SOFTDEVICE_MODEL)/hex/$(SO
 TARGET_MCU := NRF52840_XXAA
 TARGETS := nrf52840_xxaa
 
-# Linker script
-LINKER_SCRIPT := $(SDK_ROOT)/examples/ble_peripheral/ble_app_template/pca10056/s140/armgcc/ble_app_template_gcc_nrf52.ld
+# Linker script (nice!nano with S140 v6.1.1)
+LINKER_SCRIPT := nicenano.ld
 
 # Compiler flags
 CFLAGS += -DNRF52840_XXAA
-CFLAGS += -DNRF_SD_BLE_API_VERSION=7
+CFLAGS += -DNRF_SD_BLE_API_VERSION=6
 CFLAGS += -DS140
 CFLAGS += -DSOFTDEVICE_PRESENT
 CFLAGS += -DBLE_STACK_SUPPORT_REQD
 CFLAGS += -DBOARD_PCA10056
 CFLAGS += -DCONFIG_GPIO_AS_PINRESET
 CFLAGS += -DFLOAT_ABI_HARD
-CFLAGS += -DAPP_TIMER_V2
-CFLAGS += -DAPP_TIMER_V2_RTC1_ENABLED
+# No APP_TIMER_V2 in SDK 15.3
 CFLAGS += -mcpu=cortex-m4
 CFLAGS += -mthumb -mabi=aapcs
 CFLAGS += -Wall -Werror
@@ -149,15 +147,14 @@ CFLAGS += -DDEBUG_NRF
 
 # Assembler flags
 ASMFLAGS += -DNRF52840_XXAA
-ASMFLAGS += -DNRF_SD_BLE_API_VERSION=7
+ASMFLAGS += -DNRF_SD_BLE_API_VERSION=6
 ASMFLAGS += -DS140
 ASMFLAGS += -DSOFTDEVICE_PRESENT
 ASMFLAGS += -DBLE_STACK_SUPPORT_REQD
 ASMFLAGS += -DBOARD_PCA10056
 ASMFLAGS += -DCONFIG_GPIO_AS_PINRESET
 ASMFLAGS += -DFLOAT_ABI_HARD
-ASMFLAGS += -DAPP_TIMER_V2
-ASMFLAGS += -DAPP_TIMER_V2_RTC1_ENABLED
+# No APP_TIMER_V2 in SDK 15.3
 ASMFLAGS += -mcpu=cortex-m4
 ASMFLAGS += -mthumb -mabi=aapcs
 ASMFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
@@ -201,4 +198,27 @@ erase:
 clean:
 	rm -rf $(OUTPUT_DIRECTORY)
 
-.PHONY: flash flash_softdevice erase clean
+# nice!nano UF2 flash target
+# 1. Put nice!nano in bootloader mode (double-tap reset)
+# 2. Run: make flash_nicenano
+NICENANO_VOLUME := /Volumes/NICENANO
+UF2_FILE := $(OUTPUT_DIRECTORY)/$(PROJECT_NAME).uf2
+
+uf2: default
+	@echo "Converting to UF2 format..."
+	python3 uf2conv.py $(OUTPUT_DIRECTORY)/nrf52840_xxaa.hex -c -f 0xADA52840 -o $(UF2_FILE)
+	@echo "Created: $(UF2_FILE)"
+
+flash_nicenano: uf2
+	@echo "Looking for nice!nano bootloader volume..."
+	@if [ -d "$(NICENANO_VOLUME)" ]; then \
+		echo "Copying $(UF2_FILE) to $(NICENANO_VOLUME)..."; \
+		cp $(UF2_FILE) $(NICENANO_VOLUME)/; \
+		echo "Done! Device will reboot automatically."; \
+	else \
+		echo "ERROR: $(NICENANO_VOLUME) not found."; \
+		echo "Put your nice!nano in bootloader mode (double-tap reset button)."; \
+		exit 1; \
+	fi
+
+.PHONY: flash flash_softdevice flash_nicenano uf2 erase clean

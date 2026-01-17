@@ -20,23 +20,25 @@
 #include "media_remote.h"
 #include "nrf_pwr_mgmt.h"
 
-#define LED_1          NRF_GPIO_PIN_MAP(0, 13)  // LED1 on nRF52840 DK
-#define LED_2          NRF_GPIO_PIN_MAP(0, 14)  // LED2 on nRF52840 DK
-#define LED_3          NRF_GPIO_PIN_MAP(0, 15)  // LED3 on nRF52840 DK
-#define LED_4          NRF_GPIO_PIN_MAP(0, 16)  // LED4 on nRF52840 DK
+// nice!nano blue LED on P0.15 (directly connected, active LOW)
+#define LED_BLUE       NRF_GPIO_PIN_MAP(0, 15)
 
 /**@brief Function for initializing LEDs. */
 static void leds_init(void)
 {
-    nrf_gpio_cfg_output(LED_1);
-    nrf_gpio_cfg_output(LED_2);
-    nrf_gpio_cfg_output(LED_3);
-    nrf_gpio_cfg_output(LED_4);
-    
-    nrf_gpio_pin_clear(LED_1);
-    nrf_gpio_pin_clear(LED_2);
-    nrf_gpio_pin_clear(LED_3);
-    nrf_gpio_pin_clear(LED_4);
+    nrf_gpio_cfg_output(LED_BLUE);
+    nrf_gpio_pin_set(LED_BLUE);  // LED off (active low)
+}
+
+/**@brief Blink LED to show firmware is running. */
+static void led_blink(int times)
+{
+    for (int i = 0; i < times; i++) {
+        nrf_gpio_pin_clear(LED_BLUE);  // LED on
+        nrf_delay_ms(100);
+        nrf_gpio_pin_set(LED_BLUE);    // LED off
+        nrf_delay_ms(100);
+    }
 }
 
 /**@brief Function for application main entry. */
@@ -44,50 +46,62 @@ int main(void)
 {
     uint32_t err_code;
 
-    // Initialize log
-    err_code = NRF_LOG_INIT(NULL);
-    APP_ERROR_CHECK(err_code);
-
-    NRF_LOG_DEFAULT_BACKENDS_INIT();
-
-    NRF_LOG_INFO("BLE Media Remote starting...");
-
-    // Initialize LEDs
+    // Initialize LED first - blink 1x to show we started
     leds_init();
-    nrf_gpio_pin_set(LED_1);  // Indicate startup
+    led_blink(1);
+    nrf_delay_ms(500);
 
-    // Initialize timer module
+    // Skip logging for now - blink 2x
+    led_blink(2);
+    nrf_delay_ms(500);
+
+    // Initialize timer module - blink 3x before
+    led_blink(3);
+    nrf_delay_ms(500);
     err_code = app_timer_init();
-    APP_ERROR_CHECK(err_code);
+    if (err_code != 0) { while(1) { led_blink(10); nrf_delay_ms(1000); } }
 
-    // Initialize BLE stack
+    // Initialize BLE stack - blink 4x before
+    led_blink(4);
+    nrf_delay_ms(500);
     err_code = ble_stack_init();
-    APP_ERROR_CHECK(err_code);
+    if (err_code != 0) { 
+        // Blink the sub-step that failed (high nibble of err_code >> 8)
+        // 4A=sdh_enable, 4B=cfg_set, 4C=ble_enable, 4D=gatt_init, 4E=mtu, 4F=pwr
+        uint8_t substep = (err_code >> 8) & 0x0F;
+        while(1) { 
+            led_blink(4);  // Step 4 failed
+            nrf_delay_ms(300);
+            led_blink(substep);  // Sub-step (A=10, B=11, C=12, D=13, E=14, F=15)
+            nrf_delay_ms(1000); 
+        } 
+    }
 
-    // Initialize BLE services
+    // Initialize BLE services - blink 5x before
+    led_blink(5);
+    nrf_delay_ms(500);
     err_code = ble_app_init();
-    APP_ERROR_CHECK(err_code);
+    if (err_code != 0) { while(1) { led_blink(12); nrf_delay_ms(1000); } }
 
-    // Initialize media remote
+    // Initialize media remote - blink 6x before
+    led_blink(6);
+    nrf_delay_ms(500);
     err_code = media_remote_init();
-    APP_ERROR_CHECK(err_code);
+    if (err_code != 0) { while(1) { led_blink(13); nrf_delay_ms(1000); } }
 
-    // Start advertising
+    // Start advertising - blink 7x before
+    led_blink(7);
+    nrf_delay_ms(500);
     err_code = ble_app_advertising_start();
-    APP_ERROR_CHECK(err_code);
+    if (err_code != 0) { while(1) { led_blink(14); nrf_delay_ms(1000); } }
 
-    NRF_LOG_INFO("BLE Media Remote ready");
+    // SUCCESS! Blink 8x
+    led_blink(8);
+    nrf_delay_ms(1000);
 
-    // Turn off startup LED
-    nrf_gpio_pin_clear(LED_1);
-
-    // Enter main loop
+    // Enter main loop - LED stays off, device is advertising
     for (;;)
     {
-        // Process BLE events
-        if (NRF_LOG_PROCESS() == false)
-        {
-            power_manage();
-        }
+        nrf_pwr_mgmt_run();
     }
 }

@@ -1,0 +1,79 @@
+# Minimal blink test Makefile for nice!nano - NO BLE/SoftDevice
+
+PROJECT_NAME := blink_test
+SDK_ROOT := $(HOME)/nrf5_sdk/nRF5_SDK_17.1.0_ddde560
+GCCPATH := /usr/local/gcc-arm-none-eabi-10.3-2021.10/bin
+TEMPLATE_PATH := $(SDK_ROOT)/components/toolchain/gcc
+GNU_INSTALL_ROOT := $(GCCPATH)/
+GNU_PREFIX := arm-none-eabi
+OUTPUT_DIRECTORY := _build
+
+# Minimal source files - no BLE
+SRC_FILES += \
+  $(SDK_ROOT)/modules/nrfx/mdk/gcc_startup_nrf52840.S \
+  $(SDK_ROOT)/modules/nrfx/mdk/system_nrf52840.c \
+  src/main_test.c
+
+# Minimal include paths
+INC_FOLDERS += \
+  config \
+  $(SDK_ROOT)/modules/nrfx \
+  $(SDK_ROOT)/modules/nrfx/mdk \
+  $(SDK_ROOT)/modules/nrfx/hal \
+  $(SDK_ROOT)/modules/nrfx/templates \
+  $(SDK_ROOT)/integration/nrfx \
+  $(SDK_ROOT)/components/toolchain/cmsis/include \
+  $(SDK_ROOT)/components/libraries/util \
+  $(SDK_ROOT)/components/libraries/delay
+
+TARGETS := nrf52840_xxaa
+
+# No SoftDevice - use bare metal linker script starting at 0x0
+# But nice!nano has bootloader, so we still start at 0x26000
+LINKER_SCRIPT := nicenano_nosoftdevice.ld
+
+CFLAGS += -DNRF52840_XXAA
+CFLAGS += -DBOARD_PCA10056
+CFLAGS += -mcpu=cortex-m4
+CFLAGS += -mthumb -mabi=aapcs
+CFLAGS += -Wall
+CFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
+CFLAGS += -ffunction-sections -fdata-sections -fno-strict-aliasing
+CFLAGS += -fno-builtin -fshort-enums
+CFLAGS += -O3 -g3
+
+ASMFLAGS += -DNRF52840_XXAA
+ASMFLAGS += -mcpu=cortex-m4
+ASMFLAGS += -mthumb -mabi=aapcs
+ASMFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
+
+LDFLAGS += -mthumb -mabi=aapcs -L$(SDK_ROOT)/modules/nrfx/mdk -T$(LINKER_SCRIPT)
+LDFLAGS += -mcpu=cortex-m4
+LDFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
+LDFLAGS += -Wl,--gc-sections
+LDFLAGS += --specs=nano.specs
+
+LIB_FILES += -lc -lnosys -lm
+
+.PHONY: default
+default: nrf52840_xxaa
+
+include $(SDK_ROOT)/components/toolchain/gcc/Makefile.common
+
+$(foreach target, $(TARGETS), $(call define_target, $(target)))
+
+uf2: default
+	python3 uf2conv.py $(OUTPUT_DIRECTORY)/nrf52840_xxaa.hex -c -f 0xADA52840 -o $(OUTPUT_DIRECTORY)/blink_test.uf2
+	@echo "Created: $(OUTPUT_DIRECTORY)/blink_test.uf2"
+
+flash_nicenano: uf2
+	@if [ -d "/Volumes/NICENANO" ]; then \
+		cp $(OUTPUT_DIRECTORY)/blink_test.uf2 /Volumes/NICENANO/; \
+		echo "Flashed!"; \
+	else \
+		echo "Put nice!nano in bootloader mode first"; \
+	fi
+
+clean:
+	rm -rf $(OUTPUT_DIRECTORY)
+

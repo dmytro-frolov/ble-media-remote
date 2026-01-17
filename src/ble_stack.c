@@ -40,31 +40,30 @@ uint32_t ble_stack_init(void)
 {
     uint32_t err_code;
 
+    // Step 4a: Enable SoftDevice
     err_code = nrf_sdh_enable_request();
-    APP_ERROR_CHECK(err_code);
+    if (err_code != NRF_SUCCESS) return 0x4A00 | (err_code & 0xFF);
 
-    // Configure the BLE stack using the default settings.
-    // Fetch the start address of the RAM section.
+    // Step 4b: Configure BLE stack with default settings
     uint32_t ram_start = 0;
     err_code = nrf_sdh_ble_default_cfg_set(APP_BLE_CONN_CFG_TAG, &ram_start);
-    APP_ERROR_CHECK(err_code);
+    if (err_code != NRF_SUCCESS) return 0x4B00 | (err_code & 0xFF);
 
-    // Enable BLE stack.
+    // Step 4c: Enable BLE stack
     err_code = nrf_sdh_ble_enable(&ram_start);
-    APP_ERROR_CHECK(err_code);
+    if (err_code != NRF_SUCCESS) return 0x4C00 | (err_code & 0xFF);
 
-    // Note: BLE observer is registered at file scope using NRF_SDH_BLE_OBSERVER macro
-
+    // Step 4d: Init GATT
     err_code = nrf_ble_gatt_init(&m_gatt, NULL);
-    APP_ERROR_CHECK(err_code);
+    if (err_code != NRF_SUCCESS) return 0x4D00 | (err_code & 0xFF);
 
+    // Step 4e: Set MTU
     err_code = nrf_ble_gatt_att_mtu_periph_set(&m_gatt, NRF_BLE_MAX_MTU_SIZE);
-    APP_ERROR_CHECK(err_code);
+    if (err_code != NRF_SUCCESS) return 0x4E00 | (err_code & 0xFF);
 
+    // Step 4f: Power management init
     err_code = nrf_pwr_mgmt_init();
-    APP_ERROR_CHECK(err_code);
-
-    NRF_LOG_INFO("BLE stack initialized");
+    if (err_code != NRF_SUCCESS) return 0x4F00 | (err_code & 0xFF);
 
     return NRF_SUCCESS;
 }
