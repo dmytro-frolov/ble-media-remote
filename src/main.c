@@ -119,7 +119,7 @@ static ble_gatts_char_handles_t m_protocol_mode_handles;
 
 static uint8_t m_protocol_mode = 1;  // 0=Boot Protocol, 1=Report Protocol
 static uint8_t m_hid_control_point = 0;
-static uint8_t m_report_value[2] = {0, 0};  // 16 bits for media buttons
+static uint8_t m_report_value[3] = {1, 0, 0};  // Report ID + 16 bits for media buttons
 
 // ============================================================================
 // Battery Service (Optional but nice to have)
@@ -143,8 +143,8 @@ static uint8_t m_adv_data[] = {
     0x02, 0x01, 0x06,
     // Appearance: HID Keyboard (0x03C1) - iOS recognizes this as input device
     0x03, 0x19, 0xC1, 0x03,
-    // 16-bit Service UUIDs: HID (0x1812)
-    0x03, 0x03, 0x12, 0x18
+    // 16-bit Service UUIDs: DIS (0x180A) + HID (0x1812)
+    0x05, 0x03, 0x0A, 0x18, 0x12, 0x18
 };
 
 // Scan response with full name
@@ -367,9 +367,10 @@ static uint32_t send_media_key(uint16_t key_bit)
         return 0xFFFF;
     }
     
-    // Set the key bit
-    m_report_value[0] = key_bit & 0xFF;
-    m_report_value[1] = (key_bit >> 8) & 0xFF;
+    // Populate report: [Report ID][LSB][MSB]
+    m_report_value[0] = 0x01;
+    m_report_value[1] = key_bit & 0xFF;
+    m_report_value[2] = (key_bit >> 8) & 0xFF;
     
     // Send notification
     uint16_t len = sizeof(m_report_value);
@@ -386,9 +387,10 @@ static uint32_t send_media_key(uint16_t key_bit)
     // Small delay then release key
     nrf_delay_ms(50);
     
-    // Release key
-    m_report_value[0] = 0;
+    // Release key (keep report ID)
+    m_report_value[0] = 0x01;
     m_report_value[1] = 0;
+    m_report_value[2] = 0;
     len = sizeof(m_report_value);
     sd_ble_gatts_hvx(m_conn_handle, &hvx);
     
