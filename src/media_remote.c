@@ -10,7 +10,7 @@
 #include "media_remote.h"
 #include "ble.h"
 #include "app_error.h"
-#include "nrf_log.h"
+#include "uart_log.h"
 
 // TODO: Implement BLE HID service for media control
 // This will require:
@@ -21,17 +21,14 @@
 /**@brief Function for initializing the media remote. */
 uint32_t media_remote_init(void)
 {
-    NRF_LOG_INFO("Media remote initialized");
-    
-    // TODO: Initialize BLE HID service
-    
+    uart_log("  Media remote initialized\r\n");
     return NRF_SUCCESS;
 }
 
 /**@brief Function for sending a media control command. */
 uint32_t media_remote_send_cmd(media_remote_cmd_t cmd)
 {
-    NRF_LOG_INFO("Media remote command: %d", cmd);
+    (void)cmd; // Unused for now
     
     // TODO: Send HID report with media key
     

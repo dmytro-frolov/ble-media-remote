@@ -16,6 +16,7 @@
 #include "ble_stack.h"
 #include "app_error.h"
 #include "app_timer.h"
+#include "uart_log.h"
 
 #define DEVICE_NAME                     "nice!nano Remote"                /**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME               "NordicSemiconductor"             /**< Manufacturer. Will be passed to Device Information Service. */
@@ -134,6 +135,35 @@ static void qwr_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+/**@brief Function for initializing GAP parameters.
+ */
+static void gap_params_init(void)
+{
+    uint32_t                err_code;
+    ble_gap_conn_params_t   gap_conn_params;
+    ble_gap_conn_sec_mode_t sec_mode;
+
+    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&sec_mode);
+
+    err_code = sd_ble_gap_device_name_set(&sec_mode,
+                                          (const uint8_t *)DEVICE_NAME,
+                                          strlen(DEVICE_NAME));
+    APP_ERROR_CHECK(err_code);
+
+    err_code = sd_ble_gap_appearance_set(BLE_APPEARANCE_GENERIC_REMOTE_CONTROL);
+    APP_ERROR_CHECK(err_code);
+
+    memset(&gap_conn_params, 0, sizeof(gap_conn_params));
+
+    gap_conn_params.min_conn_interval = MIN_CONN_INTERVAL;
+    gap_conn_params.max_conn_interval = MAX_CONN_INTERVAL;
+    gap_conn_params.slave_latency     = SLAVE_LATENCY;
+    gap_conn_params.conn_sup_timeout  = CONN_SUP_TIMEOUT;
+
+    err_code = sd_ble_gap_ppcp_set(&gap_conn_params);
+    APP_ERROR_CHECK(err_code);
+}
+
 /**@brief Function for initializing the Advertising functionality.
  */
 static void advertising_init(void)
@@ -141,6 +171,7 @@ static void advertising_init(void)
     uint32_t               err_code;
     ble_advertising_init_t init;
 
+    uart_log("    advertising_init: memset...\r\n");
     memset(&init, 0, sizeof(init));
 
     init.advdata.name_type               = BLE_ADVDATA_FULL_NAME;
@@ -156,10 +187,17 @@ static void advertising_init(void)
 
     init.evt_handler = on_adv_evt;
 
+    uart_log("    advertising_init: ble_advertising_init...\r\n");
     err_code = ble_advertising_init(&m_advertising, &init);
-    APP_ERROR_CHECK(err_code);
+    uart_log_hex("    ble_advertising_init result: ", err_code);
+    if (err_code != NRF_SUCCESS) {
+        uart_log("    FAILED!\r\n");
+        return;
+    }
 
+    uart_log("    advertising_init: conn_cfg_tag_set...\r\n");
     ble_advertising_conn_cfg_tag_set(&m_advertising, APP_BLE_CONN_CFG_TAG);
+    uart_log("    advertising_init done\r\n");
 }
 
 /**@brief Function for handling BLE events.
@@ -188,20 +226,22 @@ void ble_app_on_ble_evt(ble_evt_t const * p_ble_evt)
  */
 uint32_t ble_app_init(void)
 {
-    // Initialize GATT
+    uart_log("  4a: gap_params_init...\r\n");
+    gap_params_init();
+
+    uart_log("  4b: gatt_init...\r\n");
     gatt_init();
 
-    // Initialize Queued Write module
+    uart_log("  4c: qwr_init...\r\n");
     qwr_init();
 
-    // Initialize Connection Parameters
+    uart_log("  4d: conn_params_init...\r\n");
     conn_params_init();
 
-    // Initialize Advertising
+    uart_log("  4e: advertising_init...\r\n");
     advertising_init();
 
-    NRF_LOG_INFO("BLE application initialized");
-
+    uart_log("  BLE app init complete!\r\n");
     return NRF_SUCCESS;
 }
 
@@ -211,9 +251,17 @@ uint32_t ble_app_advertising_start(void)
 {
     uint32_t err_code;
 
+    // Use the ble_advertising module (which already initialized successfully)
+    uart_log("  6a: ble_advertising_start (using module)...\r\n");
+    uart_log_hex("      adv_handle: ", m_advertising.adv_handle);
+    
     err_code = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
-    APP_ERROR_CHECK(err_code);
+    uart_log_hex("      result: ", err_code);
+    if (err_code != NRF_SUCCESS) {
+        return err_code;
+    }
 
+    uart_log("  Advertising started!\r\n");
     return NRF_SUCCESS;
 }
 

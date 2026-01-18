@@ -73,7 +73,9 @@ SRC_FILES += \
   src/main.c \
   src/ble_app.c \
   src/ble_stack.c \
-  src/media_remote.c
+  src/media_remote.c \
+  src/uart_log.c \
+  src/uart_log.c
 
 # Include paths - explicit list with SoftDevice headers first
 INC_FOLDERS += \
