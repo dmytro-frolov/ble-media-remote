@@ -11,6 +11,8 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
+
 #include "nrf.h"
 #include "nrf_delay.h"
 #include "nrf_gpio.h"
@@ -82,28 +84,13 @@ static const uint8_t HID_REPORT_MAP[] = {
     0x05, 0x0C,        // Usage Page (Consumer Devices)
     0x09, 0x01,        // Usage (Consumer Control)
     0xA1, 0x01,        // Collection (Application)
-    0x85, 0x01,        //   Report ID (1)
     0x15, 0x00,        //   Logical Minimum (0)
-    0x25, 0x01,        //   Logical Maximum (1)
-    0x75, 0x01,        //   Report Size (1)
-    0x95, 0x10,        //   Report Count (16) - 16 buttons
-    0x09, 0xCD,        //   Usage (Play/Pause)
-    0x09, 0xB5,        //   Usage (Scan Next Track)
-    0x09, 0xB6,        //   Usage (Scan Previous Track)
-    0x09, 0xE9,        //   Usage (Volume Up)
-    0x09, 0xEA,        //   Usage (Volume Down)
-    0x09, 0xE2,        //   Usage (Mute)
-    0x09, 0xB0,        //   Usage (Play)
-    0x09, 0xB1,        //   Usage (Pause)
-    0x09, 0xB3,        //   Usage (Fast Forward)
-    0x09, 0xB4,        //   Usage (Rewind)
-    0x09, 0xB2,        //   Usage (Record)
-    0x09, 0xB7,        //   Usage (Stop)
-    0x0A, 0x23, 0x02,  //   Usage (Home) - AC Home
-    0x0A, 0x24, 0x02,  //   Usage (Back) - AC Back
-    0x0A, 0x25, 0x02,  //   Usage (Forward) - AC Forward
-    0x0A, 0x26, 0x02,  //   Usage (Stop) - AC Stop
-    0x81, 0x02,        //   Input (Data, Variable, Absolute)
+    0x26, 0x9C, 0x02,  //   Logical Maximum (0x029C)
+    0x19, 0x00,        //   Usage Minimum (0)
+    0x2A, 0x9C, 0x02,  //   Usage Maximum (0x029C)
+    0x75, 0x10,        //   Report Size (16)
+    0x95, 0x01,        //   Report Count (1)
+    0x81, 0x00,        //   Input (Data, Array, Absolute)
     0xC0               // End Collection
 };
 
@@ -119,7 +106,8 @@ static ble_gatts_char_handles_t m_protocol_mode_handles;
 
 static uint8_t m_protocol_mode = 1;  // 0=Boot Protocol, 1=Report Protocol
 static uint8_t m_hid_control_point = 0;
-static uint8_t m_report_value[3] = {1, 0, 0};  // Report ID + 16 bits for media buttons
+static uint8_t m_report_value[2] = {0, 0};  // 16-bit usage
+static bool m_report_notif_enabled = false;
 
 // ============================================================================
 // Battery Service (Optional but nice to have)
@@ -136,6 +124,7 @@ static uint8_t m_battery_level = 100;  // Fake 100% for now
 // ============================================================================
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;
 static uint8_t m_adv_handle = BLE_GAP_ADV_SET_HANDLE_NOT_SET;
+static ble_gap_sec_params_t m_sec_params;
 
 // Advertising data with HID Keyboard appearance (iOS recognizes this)
 static uint8_t m_adv_data[] = {
@@ -200,6 +189,49 @@ static uint32_t add_char(uint16_t service_handle, uint16_t uuid,
 }
 
 // ============================================================================
+// Add a characteristic to a service (encrypted link required)
+// ============================================================================
+static uint32_t add_char_enc(uint16_t service_handle, uint16_t uuid, 
+                             uint8_t props, uint8_t *p_value, uint16_t len,
+                             ble_gatts_char_handles_t *p_handles)
+{
+    ble_uuid_t char_uuid = { .uuid = uuid, .type = BLE_UUID_TYPE_BLE };
+    
+    ble_gatts_char_md_t char_md = {0};
+    char_md.char_props.read = (props & 0x02) ? 1 : 0;
+    char_md.char_props.write = (props & 0x08) ? 1 : 0;
+    char_md.char_props.write_wo_resp = (props & 0x04) ? 1 : 0;
+    char_md.char_props.notify = (props & 0x10) ? 1 : 0;
+    
+    // Add CCCD if notify is enabled
+    ble_gatts_attr_md_t cccd_md = {0};
+    if (char_md.char_props.notify) {
+        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.read_perm);
+        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.write_perm);
+        cccd_md.vloc = BLE_GATTS_VLOC_STACK;
+        char_md.p_cccd_md = &cccd_md;
+    }
+    
+    ble_gatts_attr_md_t attr_md = {0};
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.write_perm);
+    attr_md.vloc = BLE_GATTS_VLOC_STACK;
+    attr_md.rd_auth = 0;
+    attr_md.wr_auth = 0;
+    attr_md.vlen = 0;
+    
+    ble_gatts_attr_t attr = {0};
+    attr.p_uuid = &char_uuid;
+    attr.p_attr_md = &attr_md;
+    attr.init_len = len;
+    attr.init_offs = 0;
+    attr.max_len = len;
+    attr.p_value = p_value;
+    
+    return sd_ble_gatts_characteristic_add(service_handle, &char_md, &attr, p_handles);
+}
+
+// ============================================================================
 // Add HID Report characteristic with Report Reference descriptor
 // ============================================================================
 static uint32_t add_hid_report_char(uint16_t service_handle, uint8_t report_id, uint8_t report_type,
@@ -221,11 +253,11 @@ static uint32_t add_hid_report_char(uint16_t service_handle, uint8_t report_id, 
     
     // Report Reference Descriptor
     static uint8_t report_ref[2];
-    report_ref[0] = report_id;   // Report ID
+    report_ref[0] = report_id;   // Report ID (0 if none)
     report_ref[1] = report_type; // 0x01 = Input, 0x02 = Output, 0x03 = Feature
     
     ble_gatts_attr_md_t report_ref_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&report_ref_md.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&report_ref_md.read_perm);
     BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&report_ref_md.write_perm);
     report_ref_md.vloc = BLE_GATTS_VLOC_STACK;
     
@@ -259,6 +291,26 @@ static uint32_t add_hid_report_char(uint16_t service_handle, uint8_t report_id, 
     // Add Report Reference descriptor
     uint16_t desc_handle;
     return sd_ble_gatts_descriptor_add(p_handles->value_handle, &report_ref_attr, &desc_handle);
+}
+
+// ============================================================================
+// Security parameters
+// ============================================================================
+static void sec_params_init(void)
+{
+    memset(&m_sec_params, 0, sizeof(m_sec_params));
+    m_sec_params.bond = 1;
+    m_sec_params.mitm = 0;
+    m_sec_params.lesc = 0;
+    m_sec_params.keypress = 0;
+    m_sec_params.io_caps = BLE_GAP_IO_CAPS_NONE;
+    m_sec_params.oob = 0;
+    m_sec_params.min_key_size = 7;
+    m_sec_params.max_key_size = 16;
+    m_sec_params.kdist_own.enc = 1;
+    m_sec_params.kdist_own.id = 1;
+    m_sec_params.kdist_peer.enc = 1;
+    m_sec_params.kdist_peer.id = 1;
 }
 
 // ============================================================================
@@ -325,31 +377,31 @@ static uint32_t hids_init(void)
     if (err) return err;
     
     // HID Information (read)
-    err = add_char(m_hid_service_handle, BLE_UUID_HID_INFORMATION, 0x02,
+    err = add_char_enc(m_hid_service_handle, BLE_UUID_HID_INFORMATION, 0x02,
                    (uint8_t*)HID_INFORMATION, sizeof(HID_INFORMATION), &m_hid_info_handles);
     uart_log_hex("     HID info: ", err);
     if (err) return err;
     
     // Report Map (read)
-    err = add_char(m_hid_service_handle, BLE_UUID_REPORT_MAP, 0x02,
+    err = add_char_enc(m_hid_service_handle, BLE_UUID_REPORT_MAP, 0x02,
                    (uint8_t*)HID_REPORT_MAP, sizeof(HID_REPORT_MAP), &m_report_map_handles);
     uart_log_hex("     Report map: ", err);
     if (err) return err;
     
     // HID Control Point (write without response)
-    err = add_char(m_hid_service_handle, BLE_UUID_HID_CONTROL_POINT, 0x04,
+    err = add_char_enc(m_hid_service_handle, BLE_UUID_HID_CONTROL_POINT, 0x04,
                    &m_hid_control_point, 1, &m_hid_control_handles);
     uart_log_hex("     Ctrl pt: ", err);
     if (err) return err;
     
     // Protocol Mode (read + write without response)
-    err = add_char(m_hid_service_handle, BLE_UUID_PROTOCOL_MODE, 0x06,
+    err = add_char_enc(m_hid_service_handle, BLE_UUID_PROTOCOL_MODE, 0x06,
                    &m_protocol_mode, 1, &m_protocol_mode_handles);
     uart_log_hex("     Proto mode: ", err);
     if (err) return err;
     
     // Input Report (read + notify) with Report Reference
-    err = add_hid_report_char(m_hid_service_handle, 0x01, 0x01,
+    err = add_hid_report_char(m_hid_service_handle, 0x00, 0x01,
                               m_report_value, sizeof(m_report_value), &m_report_handles);
     uart_log_hex("     Report: ", err);
     uart_log_hex("     Report handle: ", m_report_handles.value_handle);
@@ -361,16 +413,19 @@ static uint32_t hids_init(void)
 // ============================================================================
 // Send HID Report (media key press)
 // ============================================================================
-static uint32_t send_media_key(uint16_t key_bit)
+static uint32_t send_media_key(uint16_t usage)
 {
     if (m_conn_handle == BLE_CONN_HANDLE_INVALID) {
-        return 0xFFFF;
+        return NRF_ERROR_INVALID_STATE;
+    }
+
+    if (!m_report_notif_enabled) {
+        return NRF_ERROR_INVALID_STATE;
     }
     
-    // Populate report: [Report ID][LSB][MSB]
-    m_report_value[0] = 0x01;
-    m_report_value[1] = key_bit & 0xFF;
-    m_report_value[2] = (key_bit >> 8) & 0xFF;
+    // Populate report: [LSB][MSB]
+    m_report_value[0] = usage & 0xFF;
+    m_report_value[1] = (usage >> 8) & 0xFF;
     
     // Send notification
     uint16_t len = sizeof(m_report_value);
@@ -387,23 +442,22 @@ static uint32_t send_media_key(uint16_t key_bit)
     // Small delay then release key
     nrf_delay_ms(50);
     
-    // Release key (keep report ID)
-    m_report_value[0] = 0x01;
+    // Release key
+    m_report_value[0] = 0;
     m_report_value[1] = 0;
-    m_report_value[2] = 0;
     len = sizeof(m_report_value);
     sd_ble_gatts_hvx(m_conn_handle, &hvx);
     
     return err;
 }
 
-// Media key bits (match Report Descriptor order)
-#define MEDIA_PLAY_PAUSE   (1 << 0)
-#define MEDIA_NEXT         (1 << 1)
-#define MEDIA_PREV         (1 << 2)
-#define MEDIA_VOL_UP       (1 << 3)
-#define MEDIA_VOL_DOWN     (1 << 4)
-#define MEDIA_MUTE         (1 << 5)
+// Media key usage IDs (Consumer Page)
+#define MEDIA_PLAY_PAUSE   0x00CD
+#define MEDIA_NEXT         0x00B5
+#define MEDIA_PREV         0x00B6
+#define MEDIA_VOL_UP       0x00E9
+#define MEDIA_VOL_DOWN     0x00EA
+#define MEDIA_MUTE         0x00E2
 
 // ============================================================================
 // Main
@@ -481,6 +535,9 @@ int main(void)
     // Set appearance to HID Keyboard (0x03C1) - iOS recognizes this
     sd_ble_gap_appearance_set(0x03C1);
 
+    // Security params for HID (encrypted link)
+    sec_params_init();
+
     // Step 5: Initialize Services
     uart_log("5. Adding services...\r\n");
     
@@ -532,33 +589,24 @@ int main(void)
                     m_conn_handle = p_evt->evt.gap_evt.conn_handle;
                     uart_log(">>> CONNECTED!\r\n");
                     led_on();
+                    {
+                        uint32_t err = sd_ble_gap_authenticate(m_conn_handle, &m_sec_params);
+                        uart_log_hex("    auth_start: ", err);
+                    }
                     break;
                     
                 case BLE_GAP_EVT_DISCONNECTED:
                     uart_log(">>> DISCONNECTED\r\n");
                     m_conn_handle = BLE_CONN_HANDLE_INVALID;
                     led_off();
+                    m_report_notif_enabled = false;
                     sd_ble_gap_adv_start(m_adv_handle, 1);
                     break;
                     
                 case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
                     uart_log(">>> SEC_PARAMS_REQUEST\r\n");
-                    // Accept pairing with encryption (required for HID on iOS)
                     {
-                        ble_gap_sec_params_t sec_params = {0};
-                        sec_params.bond = 1;           // Enable bonding
-                        sec_params.mitm = 0;           // No MITM (Just Works)
-                        sec_params.lesc = 0;           // No LE Secure Connections
-                        sec_params.keypress = 0;
-                        sec_params.io_caps = BLE_GAP_IO_CAPS_NONE;
-                        sec_params.oob = 0;
-                        sec_params.min_key_size = 7;
-                        sec_params.max_key_size = 16;
-                        sec_params.kdist_own.enc = 1;  // Distribute our encryption key
-                        sec_params.kdist_own.id = 1;   // Distribute our identity
-                        sec_params.kdist_peer.enc = 1; // Request peer's encryption key
-                        sec_params.kdist_peer.id = 1;  // Request peer's identity
-                        
+                        // Accept pairing with encryption (required for HID on iOS)
                         ble_gap_sec_keyset_t keyset = {0};
                         static ble_gap_enc_key_t own_enc_key;
                         static ble_gap_id_key_t own_id_key;
@@ -570,7 +618,7 @@ int main(void)
                         keyset.keys_peer.p_enc_key = &peer_enc_key;
                         keyset.keys_peer.p_id_key = &peer_id_key;
                         
-                        uint32_t err = sd_ble_gap_sec_params_reply(m_conn_handle, BLE_GAP_SEC_STATUS_SUCCESS, &sec_params, &keyset);
+                        uint32_t err = sd_ble_gap_sec_params_reply(m_conn_handle, BLE_GAP_SEC_STATUS_SUCCESS, &m_sec_params, &keyset);
                         uart_log_hex("    sec_reply: ", err);
                     }
                     break;
@@ -629,6 +677,7 @@ int main(void)
                         if (handle == m_report_handles.cccd_handle) {
                             uint16_t cccd = *(uint16_t*)p_evt->evt.gatts_evt.params.write.data;
                             uart_log_hex("    HID CCCD enabled: ", cccd);
+                            m_report_notif_enabled = (cccd & BLE_GATT_HVX_NOTIFICATION) != 0;
                         }
                     }
                     break;
