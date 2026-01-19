@@ -25,6 +25,8 @@
 
 // nice!nano LED - P0.15
 #define LED_PIN        NRF_GPIO_PIN_MAP(0, 15)
+// Button on P0.22 (active low with pull-up)
+#define BUTTON_PIN     NRF_GPIO_PIN_MAP(0, 22)
 
 static void led_on(void)  { nrf_gpio_pin_clear(LED_PIN); }
 static void led_off(void) { nrf_gpio_pin_set(LED_PIN); }
@@ -39,6 +41,11 @@ static void leds_init(void)
 {
     nrf_gpio_cfg_output(LED_PIN);
     led_off();
+}
+
+static void button_init(void)
+{
+    nrf_gpio_cfg_input(BUTTON_PIN, NRF_GPIO_PIN_PULLUP);
 }
 
 // ============================================================================
@@ -468,6 +475,7 @@ int main(void)
     uint32_t ram_start = 0x20003000;
 
     leds_init();
+    button_init();
     led_on();
     uart_log_init();
     uart_log("\r\n=== MEDIA REMOTE ===\r\n");
@@ -576,8 +584,6 @@ int main(void)
 
     // Main loop
     for (;;) {
-        sd_app_evt_wait();
-        
         uint8_t evt_buffer[256] __attribute__((aligned(4)));
         uint16_t evt_len = sizeof(evt_buffer);
         
@@ -692,14 +698,29 @@ int main(void)
             
             evt_len = sizeof(evt_buffer);
         }
-        
-        // Demo: Send Play/Pause every 10 seconds when connected
-        static uint32_t counter = 0;
-        counter++;
-        if (counter > 1000000 && m_conn_handle != BLE_CONN_HANDLE_INVALID) {
-            uint32_t err = send_media_key(MEDIA_PLAY_PAUSE);
-            uart_log_hex("Play/Pause sent, err=", err);
-            counter = 0;
+
+        // Button handling with simple debounce
+        static bool last_raw_pressed = false;
+        static bool stable_pressed = false;
+        static uint8_t stable_count = 0;
+        bool raw_pressed = (nrf_gpio_pin_read(BUTTON_PIN) == 0);
+        if (raw_pressed == last_raw_pressed) {
+            if (stable_count < 5) {
+                stable_count++;
+            }
+        } else {
+            stable_count = 0;
+            last_raw_pressed = raw_pressed;
         }
+
+        if (stable_count == 5 && raw_pressed != stable_pressed) {
+            stable_pressed = raw_pressed;
+            if (stable_pressed && m_conn_handle != BLE_CONN_HANDLE_INVALID) {
+                uint32_t err = send_media_key(MEDIA_PLAY_PAUSE);
+                uart_log_hex("Play/Pause sent, err=", err);
+            }
+        }
+
+        nrf_delay_ms(5);
     }
 }
