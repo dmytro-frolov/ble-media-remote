@@ -18,10 +18,17 @@
 #include "nrf_gpio.h"
 #include "nrf_sdm.h"
 #include "nrf_soc.h"
+#include "nrf_sdh.h"
+#include "nrf_sdh_ble.h"
+#include "peer_manager.h"
+#include "peer_manager_handler.h"
+#include "fds.h"
 #include "ble.h"
 #include "ble_gap.h"
 #include "ble_gatts.h"
 #include "uart_log.h"
+
+#define APP_BLE_CONN_CFG_TAG 1
 
 // nice!nano LED - P0.15
 #define LED_PIN        NRF_GPIO_PIN_MAP(0, 15)
@@ -57,6 +64,8 @@ static const button_cfg_t BUTTONS[] = {
     { BUTTON_PAUSE_PIN,      MEDIA_PAUSE, "Pause" },
 };
 #define BUTTON_COUNT (sizeof(BUTTONS) / sizeof(BUTTONS[0]))
+
+static ble_gap_sec_params_t m_sec_params;
 
 static void led_on(void)  { nrf_gpio_pin_set(LED_PIN); }
 static void led_off(void) { nrf_gpio_pin_clear(LED_PIN); }
@@ -95,7 +104,6 @@ static ble_gatts_char_handles_t m_manufacturer_handles;
 static ble_gatts_char_handles_t m_model_handles;
 static ble_gatts_char_handles_t m_firmware_handles;
 static ble_gatts_char_handles_t m_pnp_handles;
-
 static const char MANUFACTURER_NAME[] = "nice!nano";
 static const char MODEL_NUMBER[] = "Media Remote v1";
 static const char FIRMWARE_REV[] = "1.0.0";
@@ -107,6 +115,17 @@ static const uint8_t PNP_ID[] = {
     0x01, 0x00,        // Product ID: 0x0001
     0x01, 0x00         // Product Version: 0.0.1
 };
+
+static void fds_evt_handler(fds_evt_t const *p_evt)
+{
+    if (p_evt == NULL) {
+        return;
+    }
+    if (p_evt->result != FDS_SUCCESS) {
+        uart_log_hex("FDS err: ", p_evt->result);
+    }
+}
+
 
 // ============================================================================
 // HID Service - Media Control
@@ -184,6 +203,166 @@ static uint8_t m_scan_rsp[] = {
 static ble_gap_adv_data_t m_gap_adv_data;
 static ble_gap_adv_params_t m_adv_params;
 
+// static void restart_advertising(void)
+// {
+//     sd_ble_gap_adv_start(m_adv_handle, APP_BLE_CONN_CFG_TAG);
+// }
+
+static void pm_evt_handler(pm_evt_t const *p_evt)
+{
+    if (p_evt == NULL) {
+        return;
+    }
+
+    uart_log_hex("PM evt: ", p_evt->evt_id);
+    uart_log_hex("    !!! conn: ", p_evt->conn_handle);
+    switch (p_evt->evt_id) {
+        case PM_EVT_BONDED_PEER_CONNECTED: uart_log("    bonded peer connected\r\n"); break;
+        case PM_EVT_CONN_SEC_START: uart_log("    sec start\r\n"); break;
+        case PM_EVT_CONN_SEC_SUCCEEDED: uart_log("    sec succeeded\r\n"); break;
+        case PM_EVT_CONN_SEC_FAILED: uart_log("    sec failed\r\n"); break;
+        case PM_EVT_CONN_SEC_CONFIG_REQ: uart_log("    sec config req\r\n"); break;
+        case PM_EVT_CONN_SEC_PARAMS_REQ: uart_log("    sec params req\r\n"); break;
+        default: break;
+    }
+    if (p_evt->evt_id == PM_EVT_CONN_SEC_CONFIG_REQ) {
+        pm_conn_sec_config_t cfg = { .allow_repairing = true };
+        pm_conn_sec_config_reply(p_evt->conn_handle, &cfg);
+        uart_log("PM sec cfg reply\r\n");
+    }
+
+    if (p_evt->evt_id == PM_EVT_CONN_SEC_PARAMS_REQ) {
+        ret_code_t err = pm_conn_sec_params_reply(
+            p_evt->conn_handle,
+            &m_sec_params,
+            p_evt->params.conn_sec_params_req.p_context);
+        uart_log_hex("PM sec params reply: ", err);
+    }
+
+    pm_handler_on_pm_evt(p_evt);
+    pm_handler_flash_clean(p_evt);
+    pm_handler_disconnect_on_sec_failure(p_evt);
+
+    if (p_evt->evt_id == PM_EVT_CONN_SEC_FAILED) {
+        uart_log_hex("PM sec failed, err: ", p_evt->params.conn_sec_failed.error);
+    }
+    if (p_evt->evt_id == PM_EVT_CONN_SEC_SUCCEEDED) {
+        uart_log("PM sec succeeded\r\n");
+    }
+}
+
+static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context);
+NRF_SDH_BLE_OBSERVER(m_ble_observer, 3, ble_evt_handler, NULL);
+
+static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
+{
+    (void)p_context;
+    if (p_evt == NULL) {
+        uart_log("no p_evt\r\n");
+        return;
+    }
+
+    uart_log_hex("BLE evt: ", p_evt->header.evt_id);
+    pm_handler_secure_on_error(p_evt);
+
+    switch (p_evt->header.evt_id) {
+        case BLE_GAP_EVT_CONNECTED:
+            m_conn_handle = p_evt->evt.gap_evt.conn_handle;
+            uart_log(">>> CONNECTED!\r\n");
+            uart_log_hex("    role: ", p_evt->evt.gap_evt.params.connected.role);
+            uart_log_hex("    addr type: ", p_evt->evt.gap_evt.params.connected.peer_addr.addr_type);
+            led_on();
+            {
+                ret_code_t err = pm_conn_secure(m_conn_handle, true);
+                uart_log_hex("    pm_conn_secure: ", err);
+                if (err == NRF_ERROR_BUSY || err == NRF_ERROR_INVALID_STATE) {
+                    ret_code_t err2 = sd_ble_gap_authenticate(m_conn_handle, &m_sec_params);
+                    uart_log_hex("    gap_authenticate fallback: ", err2);
+                }
+            }
+            break;
+
+        case BLE_GAP_EVT_DISCONNECTED:
+            uart_log(">>> DISCONNECTED\r\n");
+            uart_log_hex("    reason: ", p_evt->evt.gap_evt.params.disconnected.reason);
+            m_conn_handle = BLE_CONN_HANDLE_INVALID;
+            led_off();
+            m_report_notif_enabled = false;
+            sd_ble_gap_adv_start(m_adv_handle, APP_BLE_CONN_CFG_TAG);
+            break;
+
+        case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
+            uart_log(">>> SEC_PARAMS_REQUEST\r\n");
+            break;
+
+        case BLE_GAP_EVT_AUTH_STATUS:
+            uart_log(">>> AUTH_STATUS\r\n");
+            uart_log_hex("    status: ", p_evt->evt.gap_evt.params.auth_status.auth_status);
+            uart_log_hex("    bonded: ", p_evt->evt.gap_evt.params.auth_status.bonded);
+            break;
+
+        case BLE_GAP_EVT_SEC_INFO_REQUEST:
+            uart_log(">>> SEC_INFO_REQUEST\r\n");
+            {
+                sd_ble_gap_sec_info_reply(m_conn_handle, NULL, NULL, NULL);
+            }
+            break;
+
+        case BLE_GAP_EVT_CONN_SEC_UPDATE:
+            uart_log(">>> CONN_SEC_UPDATE\r\n");
+            break;
+
+        case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
+            {
+                ble_gap_phys_t phys = { .rx_phys = BLE_GAP_PHY_AUTO, .tx_phys = BLE_GAP_PHY_AUTO };
+                sd_ble_gap_phy_update(m_conn_handle, &phys);
+            }
+            break;
+
+        case BLE_GAP_EVT_PHY_UPDATE:
+        case BLE_GAP_EVT_DATA_LENGTH_UPDATE:
+            break;
+
+        case BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST:
+            sd_ble_gap_data_length_update(m_conn_handle, NULL, NULL);
+            break;
+
+        case BLE_GAP_EVT_CONN_PARAM_UPDATE_REQUEST:
+            sd_ble_gap_conn_param_update(m_conn_handle, 
+                &p_evt->evt.gap_evt.params.conn_param_update_request.conn_params);
+            break;
+
+        case BLE_GATTS_EVT_SYS_ATTR_MISSING:
+            sd_ble_gatts_sys_attr_set(m_conn_handle, NULL, 0, 0);
+            break;
+
+        case BLE_GATTS_EVT_EXCHANGE_MTU_REQUEST:
+            sd_ble_gatts_exchange_mtu_reply(m_conn_handle, 23);
+            break;
+
+        case BLE_GATTS_EVT_WRITE:
+            {
+                uint16_t handle = p_evt->evt.gatts_evt.params.write.handle;
+                uart_log_hex(">>> WRITE h:", handle);
+
+                // Check if this is our HID report CCCD
+                if (handle == m_report_handles.cccd_handle) {
+                    uint16_t cccd = *(uint16_t*)p_evt->evt.gatts_evt.params.write.data;
+                    uart_log_hex("    HID CCCD enabled: ", cccd);
+                    m_report_notif_enabled = (cccd & BLE_GATT_HVX_NOTIFICATION) != 0;
+                }
+            }
+            break;
+
+        case BLE_GATTS_EVT_HVN_TX_COMPLETE:
+            // Notification sent
+            break;
+
+        default:
+            break;
+    }
+}
+
 // ============================================================================
 // Add a characteristic to a service
 // ============================================================================
@@ -202,15 +381,15 @@ static uint32_t add_char(uint16_t service_handle, uint16_t uuid,
     // Add CCCD if notify is enabled
     ble_gatts_attr_md_t cccd_md = {0};
     if (char_md.char_props.notify) {
-        BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.read_perm);
-        BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.write_perm);
+        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.read_perm);
+        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.write_perm);
         cccd_md.vloc = BLE_GATTS_VLOC_STACK;
         char_md.p_cccd_md = &cccd_md;
     }
     
     ble_gatts_attr_md_t attr_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.write_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.write_perm);
     attr_md.vloc = BLE_GATTS_VLOC_STACK;
     attr_md.rd_auth = 0;
     attr_md.wr_auth = 0;
@@ -245,15 +424,15 @@ static uint32_t add_char_enc(uint16_t service_handle, uint16_t uuid,
     // Add CCCD if notify is enabled
     ble_gatts_attr_md_t cccd_md = {0};
     if (char_md.char_props.notify) {
-        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.read_perm);
-        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.write_perm);
+        BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.read_perm);
+        BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.write_perm);
         cccd_md.vloc = BLE_GATTS_VLOC_STACK;
         char_md.p_cccd_md = &cccd_md;
     }
     
     ble_gatts_attr_md_t attr_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.write_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.write_perm);
     attr_md.vloc = BLE_GATTS_VLOC_STACK;
     attr_md.rd_auth = 0;
     attr_md.wr_auth = 0;
@@ -350,6 +529,21 @@ static void sec_params_init(void)
     m_sec_params.kdist_own.id = 1;
     m_sec_params.kdist_peer.enc = 1;
     m_sec_params.kdist_peer.id = 1;
+}
+
+static uint32_t peer_manager_init(void)
+{
+    ret_code_t err = pm_init();
+    if (err != NRF_SUCCESS) {
+        return err;
+    }
+
+    err = pm_sec_params_set(&m_sec_params);
+    if (err != NRF_SUCCESS) {
+        return err;
+    }
+
+    return pm_register(pm_evt_handler);
 }
 
 // ============================================================================
@@ -504,54 +698,27 @@ int main(void)
     uart_log_init();
     uart_log("\r\n=== MEDIA REMOTE ===\r\n");
 
-    // Step 1: Enable SoftDevice
+    // Step 1: Enable SoftDevice via nrf_sdh (required for observers/PM)
     uart_log("1. Enabling SoftDevice...\r\n");
-    uint8_t sd_enabled = 0;
-    sd_softdevice_is_enabled(&sd_enabled);
-    
-    if (!sd_enabled) {
-        static const nrf_clock_lf_cfg_t clock_cfg = {
-            .source = NRF_CLOCK_LF_SRC_XTAL,
-            .rc_ctiv = 0,
-            .rc_temp_ctiv = 0,
-            .accuracy = NRF_CLOCK_LF_ACCURACY_20_PPM
-        };
-        err_code = sd_softdevice_enable(&clock_cfg, sd_fault_handler);
-        if (err_code) {
-            static const nrf_clock_lf_cfg_t clock_cfg_rc = {
-                .source = NRF_CLOCK_LF_SRC_RC,
-                .rc_ctiv = 16,
-                .rc_temp_ctiv = 2,
-                .accuracy = NRF_CLOCK_LF_ACCURACY_500_PPM
-            };
-            err_code = sd_softdevice_enable(&clock_cfg_rc, sd_fault_handler);
-        }
-        uart_log_hex("   result: ", err_code);
-    }
+    err_code = nrf_sdh_enable_request();
+    uart_log_hex("   result: ", err_code);
 
     // Step 2: Configure BLE
     uart_log("2. Configuring BLE...\r\n");
-    ble_cfg_t ble_cfg;
-    
-    memset(&ble_cfg, 0, sizeof(ble_cfg));
-    ble_cfg.conn_cfg.conn_cfg_tag = 1;
-    ble_cfg.conn_cfg.params.gap_conn_cfg.conn_count = 1;
-    ble_cfg.conn_cfg.params.gap_conn_cfg.event_length = 6;
-    sd_ble_cfg_set(BLE_CONN_CFG_GAP, &ble_cfg, ram_start);
-    
-    memset(&ble_cfg, 0, sizeof(ble_cfg));
-    ble_cfg.gap_cfg.role_count_cfg.periph_role_count = 1;
-    sd_ble_cfg_set(BLE_GAP_CFG_ROLE_COUNT, &ble_cfg, ram_start);
-    
+    err_code = nrf_sdh_ble_default_cfg_set(APP_BLE_CONN_CFG_TAG, &ram_start);
+    uart_log_hex("   default cfg: ", err_code);
+    uart_log_hex("   ram: ", ram_start);
+
     // Increase attribute table size for HID (need lots of space)
+    ble_cfg_t ble_cfg;
     memset(&ble_cfg, 0, sizeof(ble_cfg));
     ble_cfg.gatts_cfg.attr_tab_size.attr_tab_size = 2048;
     err_code = sd_ble_cfg_set(BLE_GATTS_CFG_ATTR_TAB_SIZE, &ble_cfg, ram_start);
     uart_log_hex("   ATTR_TAB: ", err_code);
-    
+
     // Enable BLE
     uart_log("3. Enabling BLE...\r\n");
-    err_code = sd_ble_enable(&ram_start);
+    err_code = nrf_sdh_ble_enable(&ram_start);
     uart_log_hex("   result: ", err_code);
     uart_log_hex("   ram: ", ram_start);
     if (err_code) {
@@ -569,6 +736,11 @@ int main(void)
 
     // Security params for HID (encrypted link)
     sec_params_init();
+    fds_register(fds_evt_handler);
+    err_code = fds_init();
+    uart_log_hex("   FDS init: ", err_code);
+    err_code = peer_manager_init();
+    uart_log_hex("   PM: ", err_code);
 
     // Step 5: Initialize Services
     uart_log("5. Adding services...\r\n");
@@ -599,8 +771,7 @@ int main(void)
 
     err_code = sd_ble_gap_adv_set_configure(&m_adv_handle, &m_gap_adv_data, &m_adv_params);
     uart_log_hex("   adv_config: ", err_code);
-    
-    err_code = sd_ble_gap_adv_start(m_adv_handle, 1);
+    err_code = sd_ble_gap_adv_start(m_adv_handle, APP_BLE_CONN_CFG_TAG);
     uart_log_hex("   adv_start: ", err_code);
 
     uart_log("\r\n*** READY! Look for 'Media Remote' ***\r\n");
@@ -608,120 +779,8 @@ int main(void)
 
     // Main loop
     for (;;) {
-        uint8_t evt_buffer[256] __attribute__((aligned(4)));
-        uint16_t evt_len = sizeof(evt_buffer);
-        
-        while (sd_ble_evt_get(evt_buffer, &evt_len) == 0) {
-            ble_evt_t *p_evt = (ble_evt_t *)evt_buffer;
-            
-            switch (p_evt->header.evt_id) {
-                case BLE_GAP_EVT_CONNECTED:
-                    m_conn_handle = p_evt->evt.gap_evt.conn_handle;
-                    uart_log(">>> CONNECTED!\r\n");
-                    led_on();
-                    {
-                        uint32_t err = sd_ble_gap_authenticate(m_conn_handle, &m_sec_params);
-                        uart_log_hex("    auth_start: ", err);
-                    }
-                    break;
-                    
-                case BLE_GAP_EVT_DISCONNECTED:
-                    uart_log(">>> DISCONNECTED\r\n");
-                    m_conn_handle = BLE_CONN_HANDLE_INVALID;
-                    led_off();
-                    m_report_notif_enabled = false;
-                    sd_ble_gap_adv_start(m_adv_handle, 1);
-                    break;
-                    
-                case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
-                    uart_log(">>> SEC_PARAMS_REQUEST\r\n");
-                    {
-                        // Accept pairing with encryption (required for HID on iOS)
-                        ble_gap_sec_keyset_t keyset = {0};
-                        static ble_gap_enc_key_t own_enc_key;
-                        static ble_gap_id_key_t own_id_key;
-                        static ble_gap_enc_key_t peer_enc_key;
-                        static ble_gap_id_key_t peer_id_key;
-                        
-                        keyset.keys_own.p_enc_key = &own_enc_key;
-                        keyset.keys_own.p_id_key = &own_id_key;
-                        keyset.keys_peer.p_enc_key = &peer_enc_key;
-                        keyset.keys_peer.p_id_key = &peer_id_key;
-                        
-                        uint32_t err = sd_ble_gap_sec_params_reply(m_conn_handle, BLE_GAP_SEC_STATUS_SUCCESS, &m_sec_params, &keyset);
-                        uart_log_hex("    sec_reply: ", err);
-                    }
-                    break;
-                    
-                case BLE_GAP_EVT_AUTH_STATUS:
-                    uart_log(">>> AUTH_STATUS\r\n");
-                    uart_log_hex("    status: ", p_evt->evt.gap_evt.params.auth_status.auth_status);
-                    uart_log_hex("    bonded: ", p_evt->evt.gap_evt.params.auth_status.bonded);
-                    break;
-                    
-                case BLE_GAP_EVT_SEC_INFO_REQUEST:
-                    uart_log(">>> SEC_INFO_REQUEST\r\n");
-                    // Peer is asking for stored keys (for re-encryption)
-                    // For now, we don't store keys, so reply with NULL
-                    sd_ble_gap_sec_info_reply(m_conn_handle, NULL, NULL, NULL);
-                    break;
-                    
-                case BLE_GAP_EVT_CONN_SEC_UPDATE:
-                    uart_log(">>> CONN_SEC_UPDATE\r\n");
-                    break;
-                    
-                case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
-                    {
-                        ble_gap_phys_t phys = { .rx_phys = BLE_GAP_PHY_AUTO, .tx_phys = BLE_GAP_PHY_AUTO };
-                        sd_ble_gap_phy_update(m_conn_handle, &phys);
-                    }
-                    break;
-                    
-                case BLE_GAP_EVT_PHY_UPDATE:
-                case BLE_GAP_EVT_DATA_LENGTH_UPDATE:
-                    break;
-                    
-                case BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST:
-                    sd_ble_gap_data_length_update(m_conn_handle, NULL, NULL);
-                    break;
-                    
-                case BLE_GAP_EVT_CONN_PARAM_UPDATE_REQUEST:
-                    sd_ble_gap_conn_param_update(m_conn_handle, 
-                        &p_evt->evt.gap_evt.params.conn_param_update_request.conn_params);
-                    break;
-                    
-                case BLE_GATTS_EVT_SYS_ATTR_MISSING:
-                    sd_ble_gatts_sys_attr_set(m_conn_handle, NULL, 0, 0);
-                    break;
-                    
-                case BLE_GATTS_EVT_EXCHANGE_MTU_REQUEST:
-                    sd_ble_gatts_exchange_mtu_reply(m_conn_handle, 23);
-                    break;
-                    
-                case BLE_GATTS_EVT_WRITE:
-                    {
-                        uint16_t handle = p_evt->evt.gatts_evt.params.write.handle;
-                        uart_log_hex(">>> WRITE h:", handle);
-                        
-                        // Check if this is our HID report CCCD
-                        if (handle == m_report_handles.cccd_handle) {
-                            uint16_t cccd = *(uint16_t*)p_evt->evt.gatts_evt.params.write.data;
-                            uart_log_hex("    HID CCCD enabled: ", cccd);
-                            m_report_notif_enabled = (cccd & BLE_GATT_HVX_NOTIFICATION) != 0;
-                        }
-                    }
-                    break;
-                    
-                case BLE_GATTS_EVT_HVN_TX_COMPLETE:
-                    // Notification sent
-                    break;
-                    
-                default:
-                    break;
-            }
-            
-            evt_len = sizeof(evt_buffer);
-        }
+        nrf_sdh_evts_poll();
+        // uart_log("after nrf_sdh_evts_poll\r\n");
 
         // Button handling with simple debounce
         static bool last_raw_pressed[BUTTON_COUNT] = {0};

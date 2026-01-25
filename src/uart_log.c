@@ -1,67 +1,60 @@
 /**
- * Simple UART logging - bit-banged for simplicity
+ * Logging via hardware UART0 (blocking TX only)
  */
 #include "uart_log.h"
+#include "nrf_uart.h"
 #include "nrf_gpio.h"
-#include "nrf_delay.h"
+#include <stdio.h>
 
-// TX pin - use P0.17
-#define UART_TX_PIN    NRF_GPIO_PIN_MAP(0, 17)
-
-// 9600 baud = ~104us per bit (more reliable for bit-banging)
-#define BIT_DELAY_US   104
+// TX on P0.17 (adjust if you prefer another pin)
+#define UART_TX_PIN NRF_GPIO_PIN_MAP(0, 17)
 
 static void uart_send_byte(uint8_t byte)
 {
-    // Start bit (low)
-    nrf_gpio_pin_clear(UART_TX_PIN);
-    nrf_delay_us(BIT_DELAY_US);
-    
-    // 8 data bits, LSB first
-    for (int i = 0; i < 8; i++) {
-        if (byte & (1 << i)) {
-            nrf_gpio_pin_set(UART_TX_PIN);
-        } else {
-            nrf_gpio_pin_clear(UART_TX_PIN);
-        }
-        nrf_delay_us(BIT_DELAY_US);
+    nrf_uart_event_clear(NRF_UART0, NRF_UART_EVENT_TXDRDY);
+    nrf_uart_txd_set(NRF_UART0, byte);
+    while (!nrf_uart_event_check(NRF_UART0, NRF_UART_EVENT_TXDRDY)) {
+        /* wait for byte sent */
     }
-    
-    // Stop bit (high)
-    nrf_gpio_pin_set(UART_TX_PIN);
-    nrf_delay_us(BIT_DELAY_US);
 }
 
 void uart_log_init(void)
 {
+    nrf_uart_disable(NRF_UART0);
+
+    // Configure TX pin
     nrf_gpio_cfg_output(UART_TX_PIN);
-    nrf_gpio_pin_set(UART_TX_PIN);  // Idle high
-    nrf_delay_ms(10);
-    uart_log("\r\n\r\n=== UART Log Started ===\r\n");
+    NRF_UART0->PSELTXD = UART_TX_PIN;
+    NRF_UART0->PSELRXD = NRF_UART_PSEL_DISCONNECTED;
+
+    // Configure UART: no parity, no flow control, 9600 baud
+    nrf_uart_configure(NRF_UART0, NRF_UART_PARITY_EXCLUDED, NRF_UART_HWFC_DISABLED);
+    nrf_uart_baudrate_set(NRF_UART0, NRF_UART_BAUDRATE_9600);
+
+    nrf_uart_enable(NRF_UART0);
+    nrf_uart_task_trigger(NRF_UART0, NRF_UART_TASK_STARTTX);
+
+    // Clear TXDRDY and ensure ready
+    nrf_uart_event_clear(NRF_UART0, NRF_UART_EVENT_TXDRDY);
+    uart_send_byte(0);
+
+    uart_log("\r\n\r\n=== UART Log Started (9600 8N1) ===\r\n");
 }
 
 void uart_log(const char* str)
 {
+    if (!str) return;
     while (*str) {
-        uart_send_byte(*str++);
+        uart_send_byte((uint8_t)*str++);
     }
-}
-
-static char hex_char(uint8_t nibble)
-{
-    if (nibble < 10) return '0' + nibble;
-    return 'A' + (nibble - 10);
 }
 
 void uart_log_hex(const char* str, uint32_t val)
 {
-    uart_log(str);
-    uart_log("0x");
-    
-    // Print 8 hex digits
-    for (int i = 7; i >= 0; i--) {
-        uart_send_byte(hex_char((val >> (i * 4)) & 0x0F));
+    if (str) {
+        uart_log(str);
     }
-    uart_log("\r\n");
+    char buf[16];
+    snprintf(buf, sizeof(buf), "0x%08lX\r\n", (unsigned long)val);
+    uart_log(buf);
 }
-
