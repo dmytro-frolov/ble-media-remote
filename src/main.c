@@ -25,11 +25,41 @@
 
 // nice!nano LED - P0.15
 #define LED_PIN        NRF_GPIO_PIN_MAP(0, 15)
-// Button on P0.22 (active low with pull-up)
-#define BUTTON_PIN     NRF_GPIO_PIN_MAP(0, 22)
+// Buttons (active low with pull-up)
+#define BUTTON_PLAY_PAUSE_PIN  NRF_GPIO_PIN_MAP(0, 22)
+#define BUTTON_NEXT_PIN        NRF_GPIO_PIN_MAP(0, 6)
+#define BUTTON_VOL_UP_PIN      NRF_GPIO_PIN_MAP(0, 8)
+#define BUTTON_VOL_DOWN_PIN    NRF_GPIO_PIN_MAP(0, 31)
+#define BUTTON_PREV_PIN        NRF_GPIO_PIN_MAP(0, 29)
+#define BUTTON_PAUSE_PIN       NRF_GPIO_PIN_MAP(0, 2)
 
-static void led_on(void)  { nrf_gpio_pin_clear(LED_PIN); }
-static void led_off(void) { nrf_gpio_pin_set(LED_PIN); }
+// Media key usage IDs (Consumer Page)
+#define MEDIA_PLAY_PAUSE   0x00CD
+#define MEDIA_NEXT         0x00B5
+#define MEDIA_PREV         0x00B6
+#define MEDIA_VOL_UP       0x00E9
+#define MEDIA_VOL_DOWN     0x00EA
+#define MEDIA_MUTE         0x00E2
+#define MEDIA_PAUSE        0x00B1
+
+typedef struct {
+    uint32_t pin;
+    uint16_t usage;
+    const char *label;
+} button_cfg_t;
+
+static const button_cfg_t BUTTONS[] = {
+    { BUTTON_PLAY_PAUSE_PIN, MEDIA_PLAY_PAUSE, "Play/Pause" },
+    { BUTTON_NEXT_PIN,       MEDIA_NEXT, "Next" },
+    { BUTTON_VOL_UP_PIN,     MEDIA_VOL_UP, "Vol Up" },
+    { BUTTON_VOL_DOWN_PIN,   MEDIA_VOL_DOWN, "Vol Down" },
+    { BUTTON_PREV_PIN,       MEDIA_PREV, "Prev" },
+    { BUTTON_PAUSE_PIN,      MEDIA_PAUSE, "Pause" },
+};
+#define BUTTON_COUNT (sizeof(BUTTONS) / sizeof(BUTTONS[0]))
+
+static void led_on(void)  { nrf_gpio_pin_set(LED_PIN); }
+static void led_off(void) { nrf_gpio_pin_clear(LED_PIN); }
 
 // SoftDevice fault handler
 void sd_fault_handler(uint32_t id, uint32_t pc, uint32_t info)
@@ -45,7 +75,9 @@ static void leds_init(void)
 
 static void button_init(void)
 {
-    nrf_gpio_cfg_input(BUTTON_PIN, NRF_GPIO_PIN_PULLUP);
+    for (uint8_t i = 0; i < BUTTON_COUNT; i++) {
+        nrf_gpio_cfg_input(BUTTONS[i].pin, NRF_GPIO_PIN_PULLUP);
+    }
 }
 
 // ============================================================================
@@ -458,14 +490,6 @@ static uint32_t send_media_key(uint16_t usage)
     return err;
 }
 
-// Media key usage IDs (Consumer Page)
-#define MEDIA_PLAY_PAUSE   0x00CD
-#define MEDIA_NEXT         0x00B5
-#define MEDIA_PREV         0x00B6
-#define MEDIA_VOL_UP       0x00E9
-#define MEDIA_VOL_DOWN     0x00EA
-#define MEDIA_MUTE         0x00E2
-
 // ============================================================================
 // Main
 // ============================================================================
@@ -700,24 +724,29 @@ int main(void)
         }
 
         // Button handling with simple debounce
-        static bool last_raw_pressed = false;
-        static bool stable_pressed = false;
-        static uint8_t stable_count = 0;
-        bool raw_pressed = (nrf_gpio_pin_read(BUTTON_PIN) == 0);
-        if (raw_pressed == last_raw_pressed) {
-            if (stable_count < 5) {
-                stable_count++;
-            }
-        } else {
-            stable_count = 0;
-            last_raw_pressed = raw_pressed;
-        }
+        static bool last_raw_pressed[BUTTON_COUNT] = {0};
+        static bool stable_pressed[BUTTON_COUNT] = {0};
+        static uint8_t stable_count[BUTTON_COUNT] = {0};
 
-        if (stable_count == 5 && raw_pressed != stable_pressed) {
-            stable_pressed = raw_pressed;
-            if (stable_pressed && m_conn_handle != BLE_CONN_HANDLE_INVALID) {
-                uint32_t err = send_media_key(MEDIA_PLAY_PAUSE);
-                uart_log_hex("Play/Pause sent, err=", err);
+        for (uint8_t i = 0; i < BUTTON_COUNT; i++) {
+            bool raw_pressed = (nrf_gpio_pin_read(BUTTONS[i].pin) == 0);
+            if (raw_pressed == last_raw_pressed[i]) {
+                if (stable_count[i] < 5) {
+                    stable_count[i]++;
+                }
+            } else {
+                stable_count[i] = 0;
+                last_raw_pressed[i] = raw_pressed;
+            }
+
+            if (stable_count[i] == 5 && raw_pressed != stable_pressed[i]) {
+                stable_pressed[i] = raw_pressed;
+                if (stable_pressed[i] && m_conn_handle != BLE_CONN_HANDLE_INVALID) {
+                    uint32_t err = send_media_key(BUTTONS[i].usage);
+                    uart_log("Button ");
+                    uart_log(BUTTONS[i].label);
+                    uart_log_hex(" sent, err=", err);
+                }
             }
         }
 
