@@ -182,14 +182,13 @@ static uint8_t m_battery_level = 100;  // Fake 100% for now
 // ============================================================================
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;
 static uint8_t m_adv_handle = BLE_GAP_ADV_SET_HANDLE_NOT_SET;
-static ble_gap_sec_params_t m_sec_params;
 
-// Advertising data with HID Keyboard appearance (iOS recognizes this)
+// Advertising data with Generic HID appearance (matches consumer-control-only report map)
 static uint8_t m_adv_data[] = {
     // Flags
     0x02, 0x01, 0x06,
-    // Appearance: HID Keyboard (0x03C1) - iOS recognizes this as input device
-    0x03, 0x19, 0xC1, 0x03,
+    // Appearance: Generic HID (0x03C0)
+    0x03, 0x19, 0xC0, 0x03,
     // 16-bit Service UUIDs: DIS (0x180A) + HID (0x1812)
     0x05, 0x03, 0x0A, 0x18, 0x12, 0x18
 };
@@ -420,19 +419,19 @@ static uint32_t add_char_enc(uint16_t service_handle, uint16_t uuid,
     char_md.char_props.write = (props & 0x08) ? 1 : 0;
     char_md.char_props.write_wo_resp = (props & 0x04) ? 1 : 0;
     char_md.char_props.notify = (props & 0x10) ? 1 : 0;
-    
+
     // Add CCCD if notify is enabled
     ble_gatts_attr_md_t cccd_md = {0};
     if (char_md.char_props.notify) {
-        BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.read_perm);
-        BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.write_perm);
+        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.read_perm);
+        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.write_perm);
         cccd_md.vloc = BLE_GATTS_VLOC_STACK;
         char_md.p_cccd_md = &cccd_md;
     }
-    
+
     ble_gatts_attr_md_t attr_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.write_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.write_perm);
     attr_md.vloc = BLE_GATTS_VLOC_STACK;
     attr_md.rd_auth = 0;
     attr_md.wr_auth = 0;
@@ -464,8 +463,8 @@ static uint32_t add_hid_report_char(uint16_t service_handle, uint8_t report_id, 
     
     // CCCD
     ble_gatts_attr_md_t cccd_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.write_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.write_perm);
     cccd_md.vloc = BLE_GATTS_VLOC_STACK;
     char_md.p_cccd_md = &cccd_md;
     
@@ -491,7 +490,7 @@ static uint32_t add_hid_report_char(uint16_t service_handle, uint8_t report_id, 
     char_md.p_char_user_desc = NULL;
     
     ble_gatts_attr_md_t attr_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
     BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&attr_md.write_perm);
     attr_md.vloc = BLE_GATTS_VLOC_STACK;
     
@@ -731,8 +730,8 @@ int main(void)
     BLE_GAP_CONN_SEC_MODE_SET_OPEN(&sec_mode);
     sd_ble_gap_device_name_set(&sec_mode, (uint8_t*)"Media Remote", 12);
     
-    // Set appearance to HID Keyboard (0x03C1) - iOS recognizes this
-    sd_ble_gap_appearance_set(0x03C1);
+    // Set appearance to Generic HID (0x03C0) to match consumer-control-only report map
+    sd_ble_gap_appearance_set(0x03C0);
 
     // Security params for HID (encrypted link)
     sec_params_init();
