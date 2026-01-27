@@ -100,21 +100,21 @@ static void button_init(void)
 #define BLE_UUID_PNP_ID                      0x2A50
 
 static uint16_t m_dis_service_handle;
-static ble_gatts_char_handles_t m_manufacturer_handles;
-static ble_gatts_char_handles_t m_model_handles;
-static ble_gatts_char_handles_t m_firmware_handles;
-static ble_gatts_char_handles_t m_pnp_handles;
-static const char MANUFACTURER_NAME[] = "nice!nano";
-static const char MODEL_NUMBER[] = "Media Remote v1";
-static const char FIRMWARE_REV[] = "1.0.0";
+// // static ble_gatts_char_handles_t m_manufacturer_handles;
+// // static ble_gatts_char_handles_t m_model_handles;
+// // static ble_gatts_char_handles_t m_firmware_handles;
+// // static ble_gatts_char_handles_t m_pnp_handles;
+// static const char MANUFACTURER_NAME[] = "nice!nano";
+// static const char MODEL_NUMBER[] = "Media Remote v1";
+// static const char FIRMWARE_REV[] = "1.0.0";
 
 // PnP ID: Vendor ID Source (USB), Vendor ID, Product ID, Product Version
-static const uint8_t PNP_ID[] = {
-    0x02,              // Vendor ID Source: USB Implementer's Forum
-    0x9A, 0x10,        // Vendor ID: 0x109A (placeholder - would need real VID)
-    0x01, 0x00,        // Product ID: 0x0001
-    0x01, 0x00         // Product Version: 0.0.1
-};
+// static const uint8_t PNP_ID[] = {
+//     0x02,              // Vendor ID Source: USB Implementer's Forum
+//     0x9A, 0x10,        // Vendor ID: 0x109A (placeholder - would need real VID)
+//     0x01, 0x00,        // Product ID: 0x0001
+//     0x01, 0x00         // Product Version: 0.0.1
+// };
 
 static void fds_evt_handler(fds_evt_t const *p_evt)
 {
@@ -142,6 +142,7 @@ static const uint8_t HID_REPORT_MAP[] = {
     0x05, 0x0C,        // Usage Page (Consumer Devices)
     0x09, 0x01,        // Usage (Consumer Control)
     0xA1, 0x01,        // Collection (Application)
+    0x85, 0x01,        //   Report ID (1) 
     0x15, 0x00,        //   Logical Minimum (0)
     0x26, 0x9C, 0x02,  //   Logical Maximum (0x029C)
     0x19, 0x00,        //   Usage Minimum (0)
@@ -153,7 +154,7 @@ static const uint8_t HID_REPORT_MAP[] = {
 };
 
 // HID Information: bcdHID (1.11), Country Code (0), Flags (Remote Wake + Normally Connectable)
-static const uint8_t HID_INFORMATION[] = { 0x11, 0x01, 0x00, 0x02 };
+static const uint8_t HID_INFORMATION[] = { 0x11, 0x01, 0x00, 0x03 };
 
 static uint16_t m_hid_service_handle;
 static ble_gatts_char_handles_t m_hid_info_handles;
@@ -174,14 +175,32 @@ static bool m_report_notif_enabled = false;
 #define BLE_UUID_BATTERY_LEVEL    0x2A19
 
 static uint16_t m_bas_service_handle;
-static ble_gatts_char_handles_t m_battery_handles;
-static uint8_t m_battery_level = 100;  // Fake 100% for now
+// static ble_gatts_char_handles_t m_battery_handles;
+// static uint8_t m_battery_level = 100;  // Fake 100% for now
 
 // ============================================================================
 // Connection state
 // ============================================================================
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;
 static uint8_t m_adv_handle = BLE_GAP_ADV_SET_HANDLE_NOT_SET;
+
+static void log_bonds(void)
+{
+    pm_peer_id_t peer_id = pm_next_peer_id_get(PM_PEER_ID_INVALID);
+    if (peer_id == PM_PEER_ID_INVALID) {
+        uart_log("   Bonds: none\r\n");
+        return;
+    }
+
+    uart_log("   Bonds present:\r\n");
+    while (peer_id != PM_PEER_ID_INVALID) {
+        pm_peer_data_bonding_t bond;
+        ret_code_t err = pm_peer_data_bonding_load(peer_id, &bond);
+        uart_log_hex("    peer id: ", peer_id);
+        uart_log_hex("        load err: ", err);
+        peer_id = pm_next_peer_id_get(peer_id);
+    }
+}
 
 // Advertising data with Generic HID appearance (matches consumer-control-only report map)
 static uint8_t m_adv_data[] = {
@@ -230,17 +249,17 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
         uart_log("PM sec cfg reply\r\n");
     }
 
-    if (p_evt->evt_id == PM_EVT_CONN_SEC_PARAMS_REQ) {
-        ret_code_t err = pm_conn_sec_params_reply(
-            p_evt->conn_handle,
-            &m_sec_params,
-            p_evt->params.conn_sec_params_req.p_context);
-        uart_log_hex("PM sec params reply: ", err);
-    }
+    // if (p_evt->evt_id == PM_EVT_CONN_SEC_PARAMS_REQ) {
+    //     ret_code_t err = pm_conn_sec_params_reply(
+    //         p_evt->conn_handle,
+    //         &m_sec_params,
+    //         p_evt->params.conn_sec_params_req.p_context);
+    //     uart_log_hex("PM sec params reply: ", err);
+    // }
 
     pm_handler_on_pm_evt(p_evt);
     pm_handler_flash_clean(p_evt);
-    pm_handler_disconnect_on_sec_failure(p_evt);
+    // pm_handler_disconnect_on_sec_failure(p_evt);
 
     if (p_evt->evt_id == PM_EVT_CONN_SEC_FAILED) {
         uart_log_hex("PM sec failed, err: ", p_evt->params.conn_sec_failed.error);
@@ -265,23 +284,18 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
     pm_handler_secure_on_error(p_evt);
 
     switch (p_evt->header.evt_id) {
-        case BLE_GAP_EVT_CONNECTED:
+        case BLE_GAP_EVT_CONNECTED: {
             m_conn_handle = p_evt->evt.gap_evt.conn_handle;
             uart_log(">>> CONNECTED!\r\n");
             uart_log_hex("    role: ", p_evt->evt.gap_evt.params.connected.role);
             uart_log_hex("    addr type: ", p_evt->evt.gap_evt.params.connected.peer_addr.addr_type);
             led_on();
-            {
-                ret_code_t err = pm_conn_secure(m_conn_handle, true);
-                uart_log_hex("    pm_conn_secure: ", err);
-                if (err == NRF_ERROR_BUSY || err == NRF_ERROR_INVALID_STATE) {
-                    ret_code_t err2 = sd_ble_gap_authenticate(m_conn_handle, &m_sec_params);
-                    uart_log_hex("    gap_authenticate fallback: ", err2);
-                }
-            }
+            ret_code_t err = pm_conn_secure(m_conn_handle, true);
+            uart_log_hex("pm_conn_secure: ", err);
             break;
+        }
 
-        case BLE_GAP_EVT_DISCONNECTED:
+        case BLE_GAP_EVT_DISCONNECTED:{
             uart_log(">>> DISCONNECTED\r\n");
             uart_log_hex("    reason: ", p_evt->evt.gap_evt.params.disconnected.reason);
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
@@ -289,10 +303,7 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
             m_report_notif_enabled = false;
             sd_ble_gap_adv_start(m_adv_handle, APP_BLE_CONN_CFG_TAG);
             break;
-
-        case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
-            uart_log(">>> SEC_PARAMS_REQUEST\r\n");
-            break;
+        }
 
         case BLE_GAP_EVT_AUTH_STATUS:
             uart_log(">>> AUTH_STATUS\r\n");
@@ -300,17 +311,17 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
             uart_log_hex("    bonded: ", p_evt->evt.gap_evt.params.auth_status.bonded);
             break;
 
-        case BLE_GAP_EVT_SEC_INFO_REQUEST:
+        case BLE_GAP_EVT_SEC_INFO_REQUEST:{
             uart_log(">>> SEC_INFO_REQUEST\r\n");
-            {
-                sd_ble_gap_sec_info_reply(m_conn_handle, NULL, NULL, NULL);
-            }
+            // {
+            //     sd_ble_gap_sec_info_reply(m_conn_handle, NULL, NULL, NULL);
+            // }
             break;
-
-        case BLE_GAP_EVT_CONN_SEC_UPDATE:
+        }
+        case BLE_GAP_EVT_CONN_SEC_UPDATE:{
             uart_log(">>> CONN_SEC_UPDATE\r\n");
             break;
-
+        }
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
             {
                 ble_gap_phys_t phys = { .rx_phys = BLE_GAP_PHY_AUTO, .tx_phys = BLE_GAP_PHY_AUTO };
@@ -318,27 +329,24 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
             }
             break;
 
-        case BLE_GAP_EVT_PHY_UPDATE:
-        case BLE_GAP_EVT_DATA_LENGTH_UPDATE:
-            break;
 
-        case BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST:
+        case BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST:{
             sd_ble_gap_data_length_update(m_conn_handle, NULL, NULL);
             break;
-
-        case BLE_GAP_EVT_CONN_PARAM_UPDATE_REQUEST:
+        }
+        case BLE_GAP_EVT_CONN_PARAM_UPDATE_REQUEST:{
             sd_ble_gap_conn_param_update(m_conn_handle, 
                 &p_evt->evt.gap_evt.params.conn_param_update_request.conn_params);
             break;
-
-        case BLE_GATTS_EVT_SYS_ATTR_MISSING:
+            }
+        case BLE_GATTS_EVT_SYS_ATTR_MISSING:{
             sd_ble_gatts_sys_attr_set(m_conn_handle, NULL, 0, 0);
             break;
-
-        case BLE_GATTS_EVT_EXCHANGE_MTU_REQUEST:
+        }
+        case BLE_GATTS_EVT_EXCHANGE_MTU_REQUEST:{
             sd_ble_gatts_exchange_mtu_reply(m_conn_handle, 23);
             break;
-
+        }
         case BLE_GATTS_EVT_WRITE:
             {
                 uint16_t handle = p_evt->evt.gatts_evt.params.write.handle;
@@ -350,12 +358,9 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
                     uart_log_hex("    HID CCCD enabled: ", cccd);
                     m_report_notif_enabled = (cccd & BLE_GATT_HVX_NOTIFICATION) != 0;
                 }
-            }
             break;
 
-        case BLE_GATTS_EVT_HVN_TX_COMPLETE:
-            // Notification sent
-            break;
+            }
 
         default:
             break;
@@ -365,45 +370,46 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
 // ============================================================================
 // Add a characteristic to a service
 // ============================================================================
-static uint32_t add_char(uint16_t service_handle, uint16_t uuid, 
-                         uint8_t props, uint8_t *p_value, uint16_t len,
-                         ble_gatts_char_handles_t *p_handles)
-{
-    ble_uuid_t char_uuid = { .uuid = uuid, .type = BLE_UUID_TYPE_BLE };
+// static uint32_t add_char(uint16_t service_handle, uint16_t uuid, 
+//                          uint8_t props, uint8_t *p_value, uint16_t len,
+//                          ble_gatts_char_handles_t *p_handles)
+// {
+//     ble_uuid_t char_uuid = { .uuid = uuid, .type = BLE_UUID_TYPE_BLE };
     
-    ble_gatts_char_md_t char_md = {0};
-    char_md.char_props.read = (props & 0x02) ? 1 : 0;
-    char_md.char_props.write = (props & 0x08) ? 1 : 0;
-    char_md.char_props.write_wo_resp = (props & 0x04) ? 1 : 0;
-    char_md.char_props.notify = (props & 0x10) ? 1 : 0;
+//     ble_gatts_char_md_t char_md = {0};
+//     char_md.char_props.read = (props & 0x02) ? 1 : 0;
+//     char_md.char_props.write = (props & 0x08) ? 1 : 0;
+//     char_md.char_props.write_wo_resp = (props & 0x04) ? 1 : 0;
+//     char_md.char_props.notify = (props & 0x10) ? 1 : 0;
     
-    // Add CCCD if notify is enabled
-    ble_gatts_attr_md_t cccd_md = {0};
-    if (char_md.char_props.notify) {
-        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.read_perm);
-        BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.write_perm);
-        cccd_md.vloc = BLE_GATTS_VLOC_STACK;
-        char_md.p_cccd_md = &cccd_md;
-    }
+//     // Add CCCD if notify is enabled
+//     ble_gatts_attr_md_t cccd_md = {0};
+//     if (char_md.char_props.notify) {
+//         BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.read_perm);
+//         BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.write_perm);
+        
+//         cccd_md.vloc = BLE_GATTS_VLOC_STACK;
+//         char_md.p_cccd_md = &cccd_md;
+//     }
     
-    ble_gatts_attr_md_t attr_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.write_perm);
-    attr_md.vloc = BLE_GATTS_VLOC_STACK;
-    attr_md.rd_auth = 0;
-    attr_md.wr_auth = 0;
-    attr_md.vlen = 0;
+//     ble_gatts_attr_md_t attr_md = {0};
+//     BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.read_perm);
+//     BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.write_perm);    
+//     attr_md.vloc = BLE_GATTS_VLOC_STACK;
+//     attr_md.rd_auth = 0;
+//     attr_md.wr_auth = 0;
+//     attr_md.vlen = 0;
     
-    ble_gatts_attr_t attr = {0};
-    attr.p_uuid = &char_uuid;
-    attr.p_attr_md = &attr_md;
-    attr.init_len = len;
-    attr.init_offs = 0;
-    attr.max_len = len;
-    attr.p_value = p_value;
+//     ble_gatts_attr_t attr = {0};
+//     attr.p_uuid = &char_uuid;
+//     attr.p_attr_md = &attr_md;
+//     attr.init_len = len;
+//     attr.init_offs = 0;
+//     attr.max_len = len;
+//     attr.p_value = p_value;
     
-    return sd_ble_gatts_characteristic_add(service_handle, &char_md, &attr, p_handles);
-}
+//     return sd_ble_gatts_characteristic_add(service_handle, &char_md, &attr, p_handles);
+// }
 
 // ============================================================================
 // Add a characteristic to a service (encrypted link required)
@@ -428,7 +434,7 @@ static uint32_t add_char_enc(uint16_t service_handle, uint16_t uuid,
         cccd_md.vloc = BLE_GATTS_VLOC_STACK;
         char_md.p_cccd_md = &cccd_md;
     }
-
+    
     ble_gatts_attr_md_t attr_md = {0};
     BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
     BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.write_perm);
@@ -445,70 +451,79 @@ static uint32_t add_char_enc(uint16_t service_handle, uint16_t uuid,
     attr.max_len = len;
     attr.p_value = p_value;
     
-    return sd_ble_gatts_characteristic_add(service_handle, &char_md, &attr, p_handles);
+    ret_code_t err= sd_ble_gatts_characteristic_add(service_handle, &char_md, &attr, p_handles);
+    uart_log_hex("char_add: ", err);
+    return err;
+
 }
 
 // ============================================================================
 // Add HID Report characteristic with Report Reference descriptor
 // ============================================================================
-static uint32_t add_hid_report_char(uint16_t service_handle, uint8_t report_id, uint8_t report_type,
-                                    uint8_t *p_value, uint16_t len,
-                                    ble_gatts_char_handles_t *p_handles)
+static uint32_t add_hid_report_char(uint16_t service_handle,
+    uint8_t report_id,
+    uint8_t report_type,
+    uint8_t *p_value,
+    uint16_t len,
+    ble_gatts_char_handles_t *p_handles)
 {
-    ble_uuid_t char_uuid = { .uuid = BLE_UUID_REPORT, .type = BLE_UUID_TYPE_BLE };
-    
-    ble_gatts_char_md_t char_md = {0};
-    char_md.char_props.read = 1;
-    char_md.char_props.notify = 1;
-    
-    // CCCD
-    ble_gatts_attr_md_t cccd_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.write_perm);
-    cccd_md.vloc = BLE_GATTS_VLOC_STACK;
-    char_md.p_cccd_md = &cccd_md;
-    
-    // Report Reference Descriptor
-    static uint8_t report_ref[2];
-    report_ref[0] = report_id;   // Report ID (0 if none)
-    report_ref[1] = report_type; // 0x01 = Input, 0x02 = Output, 0x03 = Feature
-    
-    ble_gatts_attr_md_t report_ref_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&report_ref_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&report_ref_md.write_perm);
-    report_ref_md.vloc = BLE_GATTS_VLOC_STACK;
-    
-    ble_uuid_t report_ref_uuid = { .uuid = 0x2908, .type = BLE_UUID_TYPE_BLE };  // Report Reference
-    ble_gatts_attr_t report_ref_attr = {
-        .p_uuid = &report_ref_uuid,
-        .p_attr_md = &report_ref_md,
-        .init_len = 2,
-        .max_len = 2,
-        .p_value = report_ref
-    };
-    
-    char_md.p_char_user_desc = NULL;
-    
-    ble_gatts_attr_md_t attr_md = {0};
-    BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&attr_md.write_perm);
-    attr_md.vloc = BLE_GATTS_VLOC_STACK;
-    
-    ble_gatts_attr_t attr = {
-        .p_uuid = &char_uuid,
-        .p_attr_md = &attr_md,
-        .init_len = len,
-        .max_len = len,
-        .p_value = p_value
-    };
-    
-    uint32_t err = sd_ble_gatts_characteristic_add(service_handle, &char_md, &attr, p_handles);
-    if (err != 0) return err;
-    
-    // Add Report Reference descriptor
-    uint16_t desc_handle;
-    return sd_ble_gatts_descriptor_add(p_handles->value_handle, &report_ref_attr, &desc_handle);
+ble_uuid_t char_uuid = { .uuid = BLE_UUID_REPORT, .type = BLE_UUID_TYPE_BLE };
+
+// --- Characteristic metadata ---
+ble_gatts_char_md_t char_md = {0};
+char_md.char_props.read   = 1;
+char_md.char_props.notify = 1;
+
+// --- CCCD (encrypted) ---
+ble_gatts_attr_md_t cccd_md = {0};
+BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.read_perm);              // <-- ВОТ ЭТО КЛЮЧ(&cccd_md.read_perm);
+BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&cccd_md.write_perm);
+cccd_md.vloc = BLE_GATTS_VLOC_STACK;
+char_md.p_cccd_md = &cccd_md;
+
+// --- Report VALUE (encrypted) ---
+ble_gatts_attr_md_t attr_md = {0};
+BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&attr_md.read_perm);
+BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&attr_md.write_perm);
+attr_md.vloc = BLE_GATTS_VLOC_USER;
+
+ble_gatts_attr_t attr = {0};
+attr.p_uuid    = &char_uuid;
+attr.p_attr_md = &attr_md;
+attr.init_len  = len;
+attr.max_len   = len;
+attr.p_value   = p_value;
+
+uint32_t err = sd_ble_gatts_characteristic_add(service_handle, &char_md, &attr, p_handles);
+uart_log_hex("sd_ble_gatts_characteristic_add: ", err);
+if (err) return err;
+
+// --- Report Reference descriptor 0x2908 (OPEN read) ---
+static uint8_t report_ref[2];
+report_ref[0] = report_id;
+report_ref[1] = report_type;
+
+ble_gatts_attr_md_t ref_md = {0};
+BLE_GAP_CONN_SEC_MODE_SET_OPEN(&ref_md.read_perm);
+BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&ref_md.write_perm);
+ref_md.vloc = BLE_GATTS_VLOC_STACK;
+
+ble_uuid_t ref_uuid = { .uuid = 0x2908, .type = BLE_UUID_TYPE_BLE };
+
+ble_gatts_attr_t ref_attr = {0};
+ref_attr.p_uuid    = &ref_uuid;
+ref_attr.p_attr_md = &ref_md;
+ref_attr.init_len  = sizeof(report_ref);
+ref_attr.max_len   = sizeof(report_ref);
+ref_attr.p_value   = report_ref;
+
+uint16_t desc_handle = BLE_GATT_HANDLE_INVALID;
+err =  sd_ble_gatts_descriptor_add(p_handles->value_handle, &ref_attr, &desc_handle);
+uart_log_hex("desc_add: ", err);
+if (err) return err;
+return err;
 }
+
 
 // ============================================================================
 // Security parameters
@@ -557,23 +572,23 @@ static uint32_t dis_init(void)
     if (err) return err;
     
     // Manufacturer Name
-    err = add_char(m_dis_service_handle, BLE_UUID_MANUFACTURER_NAME_STRING, 0x02,
-                   (uint8_t*)MANUFACTURER_NAME, strlen(MANUFACTURER_NAME), &m_manufacturer_handles);
-    if (err) return err;
+    // err = add_char(m_dis_service_handle, BLE_UUID_MANUFACTURER_NAME_STRING, 0x02,
+    //                (uint8_t*)MANUFACTURER_NAME, strlen(MANUFACTURER_NAME), &m_manufacturer_handles);
+    // if (err) return err;
     
-    // Model Number
-    err = add_char(m_dis_service_handle, BLE_UUID_MODEL_NUMBER_STRING, 0x02,
-                   (uint8_t*)MODEL_NUMBER, strlen(MODEL_NUMBER), &m_model_handles);
-    if (err) return err;
+    // // Model Number
+    // err = add_char(m_dis_service_handle, BLE_UUID_MODEL_NUMBER_STRING, 0x02,
+    //                (uint8_t*)MODEL_NUMBER, strlen(MODEL_NUMBER), &m_model_handles);
+    // if (err) return err;
     
-    // Firmware Revision
-    err = add_char(m_dis_service_handle, BLE_UUID_FIRMWARE_REVISION_STRING, 0x02,
-                   (uint8_t*)FIRMWARE_REV, strlen(FIRMWARE_REV), &m_firmware_handles);
-    if (err) return err;
+    // // Firmware Revision
+    // err = add_char(m_dis_service_handle, BLE_UUID_FIRMWARE_REVISION_STRING, 0x02,
+    //                (uint8_t*)FIRMWARE_REV, strlen(FIRMWARE_REV), &m_firmware_handles);
+    // if (err) return err;
     
-    // PnP ID
-    err = add_char(m_dis_service_handle, BLE_UUID_PNP_ID, 0x02,
-                   (uint8_t*)PNP_ID, sizeof(PNP_ID), &m_pnp_handles);
+    // // PnP ID
+    // err = add_char(m_dis_service_handle, BLE_UUID_PNP_ID, 0x02,
+    //                (uint8_t*)PNP_ID, sizeof(PNP_ID), &m_pnp_handles);
     
     return err;
 }
@@ -590,9 +605,9 @@ static uint32_t bas_init(void)
     if (err) return err;
     
     // Battery Level (read + notify)
-    err = add_char(m_bas_service_handle, BLE_UUID_BATTERY_LEVEL, 0x12,
-                   &m_battery_level, 1, &m_battery_handles);
-    
+    // err = add_char(m_bas_service_handle, BLE_UUID_BATTERY_LEVEL, 0x12,
+    //                &m_battery_level, 1, &m_battery_handles);
+
     return err;
 }
 
@@ -633,7 +648,7 @@ static uint32_t hids_init(void)
     if (err) return err;
     
     // Input Report (read + notify) with Report Reference
-    err = add_hid_report_char(m_hid_service_handle, 0x00, 0x01,
+    err = add_hid_report_char(m_hid_service_handle, 0x01, 0x01,
                               m_report_value, sizeof(m_report_value), &m_report_handles);
     uart_log_hex("     Report: ", err);
     uart_log_hex("     Report handle: ", m_report_handles.value_handle);
@@ -733,6 +748,16 @@ int main(void)
     // Set appearance to Generic HID (0x03C0) to match consumer-control-only report map
     sd_ble_gap_appearance_set(0x03C0);
 
+    // Preferred connection params: 30–50 ms interval, 0 latency, 6 s supervision timeout
+    ble_gap_conn_params_t ppcp = {
+        .min_conn_interval = MSEC_TO_UNITS(30, UNIT_1_25_MS),
+        .max_conn_interval = MSEC_TO_UNITS(50, UNIT_1_25_MS),
+        .slave_latency     = 0,
+        .conn_sup_timeout  = MSEC_TO_UNITS(6000, UNIT_10_MS),
+    };
+    err_code = sd_ble_gap_ppcp_set(&ppcp);
+    uart_log_hex("   PPCP set: ", err_code);
+
     // Security params for HID (encrypted link)
     sec_params_init();
     fds_register(fds_evt_handler);
@@ -740,6 +765,17 @@ int main(void)
     uart_log_hex("   FDS init: ", err_code);
     err_code = peer_manager_init();
     uart_log_hex("   PM: ", err_code);
+
+    // Hold Play/Pause button on boot to clear stored bonds (avoids stale key timeouts)
+    bool clear_bonds = (nrf_gpio_pin_read(BUTTON_PLAY_PAUSE_PIN) == 0);
+    if (clear_bonds) {
+        uart_log("   Clearing bonds...\r\n");
+        ret_code_t del_err = pm_peers_delete();
+        uart_log_hex("   PM delete peers: ", del_err);
+    } else {
+        uart_log("   Keeping existing bonds\r\n");
+    }
+    log_bonds();
 
     // Step 5: Initialize Services
     uart_log("5. Adding services...\r\n");
@@ -752,6 +788,10 @@ int main(void)
     
     err_code = hids_init();
     uart_log_hex("   HIDS: ", err_code);
+    if (err_code != NRF_SUCCESS || err_code == NRF_ERROR_INVALID_PARAM) {
+        uart_log("   Init failed, halting\r\n");
+        while (1) { led_on(); nrf_delay_ms(200); led_off(); nrf_delay_ms(200); }
+    }
 
     // Step 6: Start advertising
     uart_log("6. Starting advertising...\r\n");
