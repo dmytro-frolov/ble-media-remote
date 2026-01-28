@@ -302,8 +302,8 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
     } 
     
 
-    pm_handler_on_pm_evt(p_evt);
-    pm_handler_flash_clean(p_evt);
+    // pm_handler_on_pm_evt(p_evt);
+    // pm_handler_flash_clean(p_evt);
     // pm_handler_disconnect_on_sec_failure(p_evt);
 
     if (p_evt->evt_id == PM_EVT_CONN_SEC_FAILED) {
@@ -312,19 +312,15 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
     if (p_evt->evt_id == PM_EVT_CONN_SEC_SUCCEEDED) {
         uart_log("PM sec succeeded\r\n");
     }
-}
 
-static void pm_ble_evt_handler(ble_evt_t const * p_evt, void * p_context)
-{
-    (void)p_context;
-    pm_handler_on_ble_evt(p_evt);
+    pm_handler_on_pm_evt(p_evt);
+    pm_handler_flash_clean(p_evt);
 }
 
 
 
 static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context);
 NRF_SDH_BLE_OBSERVER(m_ble_observer, 3, ble_evt_handler, NULL);
-NRF_SDH_BLE_OBSERVER(m_pm_observer, 2, pm_ble_evt_handler, NULL);
 
 
 
@@ -338,8 +334,6 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
 
     uart_log_hex("BLE evt: ", p_evt->header.evt_id);
     pm_handler_secure_on_error(p_evt);
-    // pm_handler_on_ble_evt(p_evt);
-    // pm_on_ble_evt(p_evt);
 
     switch (p_evt->header.evt_id) {
         case BLE_GAP_EVT_CONNECTED: {
@@ -348,6 +342,10 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
             uart_log_hex("    role: ", p_evt->evt.gap_evt.params.connected.role);
             uart_log_hex("    addr type: ", p_evt->evt.gap_evt.params.connected.peer_addr.addr_type);
             led_on();
+            
+            
+            // pm_handler_secure_on_connection(p_evt);
+
             ret_code_t err = pm_conn_secure(m_conn_handle, true);
             uart_log_hex("pm_conn_secure: ", err);
             break;
