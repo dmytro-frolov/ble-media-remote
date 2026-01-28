@@ -138,19 +138,53 @@ static void fds_evt_handler(fds_evt_t const *p_evt)
 #define BLE_UUID_PROTOCOL_MODE                   0x2A4E
 
 // HID Report Descriptor for Consumer Control (Media Keys)
-static const uint8_t HID_REPORT_MAP[] = {
-    0x05, 0x0C,        // Usage Page (Consumer Devices)
-    0x09, 0x01,        // Usage (Consumer Control)
+static const uint8_t HID_REPORT_MAP[] =
+{
+    /* ========== Keyboard (Report ID 1) ========== */
+    0x05, 0x01,        // Usage Page (Generic Desktop)
+    0x09, 0x06,        // Usage (Keyboard)
     0xA1, 0x01,        // Collection (Application)
-    0x85, 0x01,        //   Report ID (1) 
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x26, 0x9C, 0x02,  //   Logical Maximum (0x029C)
-    0x19, 0x00,        //   Usage Minimum (0)
-    0x2A, 0x9C, 0x02,  //   Usage Maximum (0x029C)
-    0x75, 0x10,        //   Report Size (16)
-    0x95, 0x01,        //   Report Count (1)
-    0x81, 0x00,        //   Input (Data, Array, Absolute)
-    0xC0               // End Collection
+    0x85, 0x01,        //   Report ID (1)
+
+    0x05, 0x07,        //   Usage Page (Keyboard)
+    0x19, 0xE0,        //   Usage Min (Left Control)
+    0x29, 0xE7,        //   Usage Max (Right GUI)
+    0x15, 0x00,
+    0x25, 0x01,
+    0x75, 0x01,
+    0x95, 0x08,
+    0x81, 0x02,        //   Input (Modifiers)
+
+    0x95, 0x01,
+    0x75, 0x08,
+    0x81, 0x01,        //   Input (Reserved)
+
+    0x95, 0x06,
+    0x75, 0x08,
+    0x15, 0x00,
+    0x25, 0x65,
+    0x05, 0x07,
+    0x19, 0x00,
+    0x29, 0x65,
+    0x81, 0x00,        //   Input (Keys)
+
+    0xC0,
+
+    /* ========== Consumer Control (Report ID 2) ========== */
+    0x05, 0x0C,        // Usage Page (Consumer)
+    0x09, 0x01,        // Usage (Consumer Control)
+    0xA1, 0x01,        // Collection
+    0x85, 0x02,        //   Report ID (2)
+
+    0x15, 0x00,
+    0x26, 0x9C, 0x02,
+    0x19, 0x00,
+    0x2A, 0x9C, 0x02,
+    0x75, 0x10,
+    0x95, 0x01,
+    0x81, 0x00,        //   Input (Consumer usage)
+
+    0xC0
 };
 
 // HID Information: bcdHID (1.11), Country Code (0), Flags (Remote Wake + Normally Connectable)
@@ -166,6 +200,13 @@ static ble_gatts_char_handles_t m_protocol_mode_handles;
 static uint8_t m_protocol_mode = 1;  // 0=Boot Protocol, 1=Report Protocol
 static uint8_t m_hid_control_point = 0;
 static uint8_t m_report_value[2] = {0, 0};  // 16-bit usage
+
+static uint8_t m_keyboard_report[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t m_consumer_report[2] = {0, 0};
+static ble_gatts_char_handles_t m_kbd_report_handles;
+static ble_gatts_char_handles_t m_consumer_report_handles;
+
+
 static bool m_report_notif_enabled = false;
 
 // ============================================================================
@@ -226,6 +267,9 @@ static ble_gap_adv_params_t m_adv_params;
 //     sd_ble_gap_adv_start(m_adv_handle, APP_BLE_CONN_CFG_TAG);
 // }
 
+
+
+
 static void pm_evt_handler(pm_evt_t const *p_evt)
 {
     if (p_evt == NULL) {
@@ -233,7 +277,6 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
     }
 
     uart_log_hex("PM evt: ", p_evt->evt_id);
-    uart_log_hex("    !!! conn: ", p_evt->conn_handle);
     switch (p_evt->evt_id) {
         case PM_EVT_BONDED_PEER_CONNECTED: uart_log("    bonded peer connected\r\n"); break;
         case PM_EVT_CONN_SEC_START: uart_log("    sec start\r\n"); break;
@@ -245,17 +288,19 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
     }
     if (p_evt->evt_id == PM_EVT_CONN_SEC_CONFIG_REQ) {
         pm_conn_sec_config_t cfg = { .allow_repairing = true };
+        uart_log_hex("PM_EVT_CONN_SEC_CONFIG_REQ conn_handle: ", p_evt->conn_handle);
         pm_conn_sec_config_reply(p_evt->conn_handle, &cfg);
-        uart_log("PM sec cfg reply\r\n");
     }
 
-    // if (p_evt->evt_id == PM_EVT_CONN_SEC_PARAMS_REQ) {
-    //     ret_code_t err = pm_conn_sec_params_reply(
-    //         p_evt->conn_handle,
-    //         &m_sec_params,
-    //         p_evt->params.conn_sec_params_req.p_context);
-    //     uart_log_hex("PM sec params reply: ", err);
-    // }
+    if (p_evt->evt_id == PM_EVT_CONN_SEC_PARAMS_REQ) {
+        ret_code_t err = pm_conn_sec_params_reply(
+            p_evt->conn_handle,
+            &m_sec_params,
+            p_evt->params.conn_sec_params_req.p_context
+        );
+        uart_log_hex("PM sec params reply: ", err);
+    } 
+    
 
     pm_handler_on_pm_evt(p_evt);
     pm_handler_flash_clean(p_evt);
@@ -269,8 +314,19 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
     }
 }
 
+static void pm_ble_evt_handler(ble_evt_t const * p_evt, void * p_context)
+{
+    (void)p_context;
+    pm_handler_on_ble_evt(p_evt);
+}
+
+
+
 static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context);
 NRF_SDH_BLE_OBSERVER(m_ble_observer, 3, ble_evt_handler, NULL);
+NRF_SDH_BLE_OBSERVER(m_pm_observer, 2, pm_ble_evt_handler, NULL);
+
+
 
 static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
 {
@@ -282,6 +338,8 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
 
     uart_log_hex("BLE evt: ", p_evt->header.evt_id);
     pm_handler_secure_on_error(p_evt);
+    // pm_handler_on_ble_evt(p_evt);
+    // pm_on_ble_evt(p_evt);
 
     switch (p_evt->header.evt_id) {
         case BLE_GAP_EVT_CONNECTED: {
@@ -348,19 +406,20 @@ static void ble_evt_handler(ble_evt_t const *p_evt, void *p_context)
             break;
         }
         case BLE_GATTS_EVT_WRITE:
-            {
-                uint16_t handle = p_evt->evt.gatts_evt.params.write.handle;
-                uart_log_hex(">>> WRITE h:", handle);
+        {
+            uart_log(">>> BLE_GATTS_EVT_WRITE\r\n");
+            uint16_t handle = p_evt->evt.gatts_evt.params.write.handle;
+            uart_log_hex(">>> WRITE h:", handle);
 
-                // Check if this is our HID report CCCD
-                if (handle == m_report_handles.cccd_handle) {
-                    uint16_t cccd = *(uint16_t*)p_evt->evt.gatts_evt.params.write.data;
-                    uart_log_hex("    HID CCCD enabled: ", cccd);
-                    m_report_notif_enabled = (cccd & BLE_GATT_HVX_NOTIFICATION) != 0;
-                }
-            break;
-
+            // Check if this is our HID report CCCD
+            if (handle == m_report_handles.cccd_handle) {
+                uint16_t cccd = *(uint16_t*)p_evt->evt.gatts_evt.params.write.data;
+                uart_log_hex("    HID CCCD enabled: ", cccd);
+                m_report_notif_enabled = (cccd & BLE_GATT_HVX_NOTIFICATION) != 0;
             }
+        break;
+
+        }
 
         default:
             break;
@@ -648,12 +707,43 @@ static uint32_t hids_init(void)
     if (err) return err;
     
     // Input Report (read + notify) with Report Reference
-    err = add_hid_report_char(m_hid_service_handle, 0x01, 0x01,
-                              m_report_value, sizeof(m_report_value), &m_report_handles);
-    uart_log_hex("     Report: ", err);
-    uart_log_hex("     Report handle: ", m_report_handles.value_handle);
-    uart_log_hex("     Report CCCD: ", m_report_handles.cccd_handle);
+    // err = add_hid_report_char(m_hid_service_handle, 0x01, 0x01,
+    //                           m_report_value, sizeof(m_report_value), &m_report_handles);
+    // uart_log_hex("     Report: ", err);
+
+    err = add_hid_report_char(
+        m_hid_service_handle,
+        0x01,                 // Report ID = 1
+        0x01,                 // INPUT
+        m_keyboard_report,
+        sizeof(m_keyboard_report),
+        &m_kbd_report_handles
+    );
+    uart_log_hex("     KBD Report: ", err);
+    if (err) return err;
     
+    // Consumer Control Input Report (Report ID 2)
+    err = add_hid_report_char(
+        m_hid_service_handle,
+        0x02,                 // Report ID = 2
+        0x01,                 // INPUT
+        m_consumer_report,
+        sizeof(m_consumer_report),
+        &m_consumer_report_handles
+    );
+    uart_log_hex("     Consumer Report: ", err);
+    if (err) return err;
+
+
+    // uart_log_hex("     Report handle: ", m_report_handles.value_handle);
+    // uart_log_hex("     Report CCCD: ", m_report_handles.cccd_handle);
+
+
+
+    uart_log_hex("     KBD Report handle: ", m_kbd_report_handles.value_handle);
+    uart_log_hex("     KBD Report CCCD: ", m_kbd_report_handles.cccd_handle);
+    uart_log_hex("     Consumer Report handle: ", m_consumer_report_handles.value_handle);
+    uart_log_hex("     Consumer Report CCCD: ", m_consumer_report_handles.cccd_handle);
     return err;
 }
 
@@ -746,7 +836,7 @@ int main(void)
     sd_ble_gap_device_name_set(&sec_mode, (uint8_t*)"Media Remote", 12);
     
     // Set appearance to Generic HID (0x03C0) to match consumer-control-only report map
-    sd_ble_gap_appearance_set(0x03C0);
+    sd_ble_gap_appearance_set(0x03C1);
 
     // Preferred connection params: 30–50 ms interval, 0 latency, 6 s supervision timeout
     ble_gap_conn_params_t ppcp = {
