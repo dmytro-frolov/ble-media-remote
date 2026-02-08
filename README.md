@@ -132,7 +132,7 @@ make clean
 make
 
 # Flash to device
-make flash
+make flash_nicenano
 
 # Erase device
 make erase
