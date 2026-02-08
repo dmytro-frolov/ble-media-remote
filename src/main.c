@@ -41,6 +41,8 @@
 #include "nrf_ble_gatt.h"
 #include "nrf_ble_qwr.h"
 
+#include "nrfx_saadc.h"
+
 #include "uart_log.h"
 
 #define APP_BLE_CONN_CFG_TAG            1
@@ -67,6 +69,16 @@
 // Status LED: blink when not connected, off when connected.
 #define STATUS_LED_BLINK_INTERVAL       APP_TIMER_TICKS(250)
 
+// Battery Service updates (to iOS).
+#define BATTERY_UPDATE_INTERVAL         APP_TIMER_TICKS(60000)
+#define BATTERY_SAADC_CHANNEL           0
+// Battery sense wiring (recommended): BAT+ -> 1M -> (P0.02/AIN0) -> 1M -> GND
+#define BATTERY_SAADC_INPUT             NRF_SAADC_INPUT_AIN0
+#define BATTERY_DIVIDER_NUM             2
+#define BATTERY_DIVIDER_DEN             1
+#define BATTERY_MV_FULL                 4200
+#define BATTERY_MV_EMPTY                3300
+
 // nice!nano LED - P0.15
 #define LED_PIN                         NRF_GPIO_PIN_MAP(0, 15)
 
@@ -76,7 +88,6 @@
 #define BUTTON_PREV_PIN                 NRF_GPIO_PIN_MAP(0, 29)
 #define BUTTON_VOL_UP_PIN               NRF_GPIO_PIN_MAP(0, 8)
 #define BUTTON_VOL_DOWN_PIN             NRF_GPIO_PIN_MAP(0, 31)
-#define BUTTON_PAUSE_PIN                NRF_GPIO_PIN_MAP(0, 2)   /* Optional. */
 
 #define BUTTON_SAMPLE_MS                10
 #define BUTTON_DEBOUNCE_SAMPLES         5      /* 50 ms */
@@ -89,7 +100,6 @@
 #define MEDIA_PREV_TRACK                0x00B6
 #define MEDIA_VOL_UP                    0x00E9
 #define MEDIA_VOL_DOWN                  0x00EA
-#define MEDIA_PAUSE                     0x00B1
 
 typedef struct
 {
@@ -105,7 +115,6 @@ static const button_cfg_t BUTTONS[] =
     { BUTTON_PREV_PIN,       MEDIA_PREV_TRACK,    "Prev"       },
     { BUTTON_VOL_UP_PIN,     MEDIA_VOL_UP,        "Vol Up"     },
     { BUTTON_VOL_DOWN_PIN,   MEDIA_VOL_DOWN,      "Vol Down"   },
-    { BUTTON_PAUSE_PIN,      MEDIA_PAUSE,         "Pause"      },
 };
 
 #define BUTTON_COUNT (sizeof(BUTTONS) / sizeof(BUTTONS[0]))
@@ -129,6 +138,7 @@ static const button_cfg_t BUTTONS[] =
 BLE_HIDS_DEF(m_hids,
              NRF_SDH_BLE_TOTAL_LINK_COUNT,
              INPUT_REPORT_KEYS_MAX_LEN,
+             INPUT_REPORT_CONSUMER_MAX_LEN,
              OUTPUT_REPORT_MAX_LEN,
              FEATURE_REPORT_MAX_LEN);
 
@@ -137,9 +147,12 @@ NRF_BLE_GATT_DEF(m_gatt);
 NRF_BLE_QWR_DEF(m_qwr);
 BLE_ADVERTISING_DEF(m_advertising);
 APP_TIMER_DEF(m_status_led_timer);
+APP_TIMER_DEF(m_battery_timer);
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;
 static pm_peer_id_t m_peer_id = PM_PEER_ID_INVALID;
+static volatile bool m_battery_update_pending = false;
+static uint8_t m_battery_level = 100;
 
 static ble_uuid_t m_adv_uuids[] =
 {
@@ -148,6 +161,95 @@ static ble_uuid_t m_adv_uuids[] =
 
 static void led_on(void)  { nrf_gpio_pin_set(LED_PIN); }
 static void led_off(void) { nrf_gpio_pin_clear(LED_PIN); }
+
+static void battery_timer_timeout_handler(void * p_context)
+{
+    (void)p_context;
+    m_battery_update_pending = true;
+}
+
+static uint8_t battery_mv_to_percent(uint32_t mv)
+{
+    if (mv >= BATTERY_MV_FULL)
+    {
+        return 100;
+    }
+    if (mv <= BATTERY_MV_EMPTY)
+    {
+        return 0;
+    }
+    return (uint8_t)(((mv - BATTERY_MV_EMPTY) * 100u) / (BATTERY_MV_FULL - BATTERY_MV_EMPTY));
+}
+
+static void saadc_evt_handler(nrfx_saadc_evt_t const * p_event)
+{
+    (void)p_event;
+}
+
+static void battery_saadc_init(void)
+{
+    nrfx_saadc_config_t config = NRFX_SAADC_DEFAULT_CONFIG;
+    APP_ERROR_CHECK(nrfx_saadc_init(&config, saadc_evt_handler));
+
+    nrf_saadc_channel_config_t ch = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(BATTERY_SAADC_INPUT);
+    // Higher acquisition time helps when using a high-impedance divider (e.g. 1M/1M).
+    ch.acq_time = NRF_SAADC_ACQTIME_40US;
+    APP_ERROR_CHECK(nrfx_saadc_channel_init(BATTERY_SAADC_CHANNEL, &ch));
+}
+
+static uint32_t battery_saadc_max_value(void)
+{
+#if (NRFX_SAADC_CONFIG_RESOLUTION == 0)
+    return 255u;    // 8-bit
+#elif (NRFX_SAADC_CONFIG_RESOLUTION == 1)
+    return 1023u;   // 10-bit
+#elif (NRFX_SAADC_CONFIG_RESOLUTION == 2)
+    return 4095u;   // 12-bit
+#elif (NRFX_SAADC_CONFIG_RESOLUTION == 3)
+    return 16383u;  // 14-bit
+#else
+    return 4095u;
+#endif
+}
+
+static uint32_t battery_measure_mv(void)
+{
+    nrf_saadc_value_t raw = 0;
+    if (nrfx_saadc_sample_convert(BATTERY_SAADC_CHANNEL, &raw) != NRFX_SUCCESS)
+    {
+        return 0;
+    }
+    if (raw < 0)
+    {
+        raw = 0;
+    }
+
+    // With INTERNAL 0.6V reference and GAIN1_6, full-scale ~= 3.6V at max raw.
+    uint32_t max_raw = battery_saadc_max_value();
+    uint32_t mv = ((uint32_t)raw * 3600u + (max_raw / 2u)) / max_raw;
+    mv = (mv * BATTERY_DIVIDER_NUM) / BATTERY_DIVIDER_DEN;
+    return mv;
+}
+
+static void battery_update_process(void)
+{
+    if (!m_battery_update_pending)
+    {
+        return;
+    }
+    m_battery_update_pending = false;
+
+    uint32_t mv = battery_measure_mv();
+    if (mv != 0)
+    {
+        m_battery_level = battery_mv_to_percent(mv);
+    }
+
+    if (m_conn_handle != BLE_CONN_HANDLE_INVALID)
+    {
+        (void)ble_bas_battery_level_update(&m_bas, m_battery_level, BLE_CONN_HANDLE_ALL);
+    }
+}
 
 static void status_led_timeout_handler(void * p_context)
 {
@@ -207,6 +309,9 @@ static void timers_init(void)
     APP_ERROR_CHECK(err);
 
     err = app_timer_create(&m_status_led_timer, APP_TIMER_MODE_REPEATED, status_led_timeout_handler);
+    APP_ERROR_CHECK(err);
+
+    err = app_timer_create(&m_battery_timer, APP_TIMER_MODE_REPEATED, battery_timer_timeout_handler);
     APP_ERROR_CHECK(err);
 }
 
@@ -727,6 +832,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             APP_ERROR_CHECK(nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle));
             status_led_stop();
+            (void)ble_bas_battery_level_update(&m_bas, m_battery_level, BLE_CONN_HANDLE_ALL);
             break;
 
         case BLE_GAP_EVT_DISCONNECTED:
@@ -875,6 +981,7 @@ int main(void)
 
     timers_init();
     power_management_init();
+    battery_saadc_init();
 
     fds_register(fds_evt_handler);
     APP_ERROR_CHECK(fds_init());
@@ -890,10 +997,12 @@ int main(void)
     advertising_start(erase_bonds);
     uart_log("*** READY: pair from iOS Bluetooth settings ***\r\n");
     status_led_start();
+    APP_ERROR_CHECK(app_timer_start(m_battery_timer, BATTERY_UPDATE_INTERVAL, NULL));
 
     for (;;)
     {
         button_poll_and_send();
+        battery_update_process();
         nrf_delay_ms(BUTTON_SAMPLE_MS);
     }
 }

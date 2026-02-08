@@ -47,11 +47,12 @@ OUTPUT_DIRECTORY := _build
   $(SDK_ROOT)/components/libraries/sortlist/nrf_sortlist.c \
   $(SDK_ROOT)/components/libraries/strerror/nrf_strerror.c \
   $(SDK_ROOT)/components/boards/boards.c \
-  $(SDK_ROOT)/integration/nrfx/legacy/nrf_drv_clock.c \
-  $(SDK_ROOT)/modules/nrfx/soc/nrfx_atomic.c \
-  $(SDK_ROOT)/modules/nrfx/drivers/src/nrfx_clock.c \
-  $(SDK_ROOT)/external/fprintf/nrf_fprintf.c \
-  $(SDK_ROOT)/external/fprintf/nrf_fprintf_format.c \
+	  $(SDK_ROOT)/integration/nrfx/legacy/nrf_drv_clock.c \
+	  $(SDK_ROOT)/modules/nrfx/soc/nrfx_atomic.c \
+	  $(SDK_ROOT)/modules/nrfx/drivers/src/nrfx_clock.c \
+	  $(SDK_ROOT)/modules/nrfx/drivers/src/nrfx_saadc.c \
+	  $(SDK_ROOT)/external/fprintf/nrf_fprintf.c \
+	  $(SDK_ROOT)/external/fprintf/nrf_fprintf_format.c \
   $(SDK_ROOT)/external/segger_rtt/SEGGER_RTT.c \
   $(SDK_ROOT)/external/segger_rtt/SEGGER_RTT_Syscalls_GCC.c \
   $(SDK_ROOT)/external/segger_rtt/SEGGER_RTT_printf.c \

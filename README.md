@@ -122,6 +122,19 @@ The firmware uses bonding (Peer Manager). If iOS refuses to reconnect, or you wa
 
 Tip: on iOS you may also need to go to Bluetooth settings and tap **“Forget This Device”** for the old pairing.
 
+## Battery Level (iOS)
+
+The firmware exposes the standard **Battery Service (BAS)** and periodically updates the battery level to iOS.
+
+To measure the actual LiPo voltage (so iOS battery % makes sense), wire a **battery sense divider** to an SAADC input.
+
+Current default wiring in firmware (`src/main.c`):
+
+- `BAT+` -> **1M** -> `P0.02 (AIN0)` -> **1M** -> `GND`
+- (Optional) add **0.1uF** from `P0.02` to `GND` for steadier readings.
+
+The divider is required because a full LiPo is ~4.2V, while the nRF52840 analog input must stay <= `VDD` (~3.3V).
+
 ## Building
 
 ```bash
