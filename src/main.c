@@ -64,6 +64,9 @@
 #define NEXT_CONN_PARAMS_UPDATE_DELAY   APP_TIMER_TICKS(30000)
 #define MAX_CONN_PARAMS_UPDATE_COUNT    3
 
+// Status LED: blink when not connected, off when connected.
+#define STATUS_LED_BLINK_INTERVAL       APP_TIMER_TICKS(250)
+
 // nice!nano LED - P0.15
 #define LED_PIN                         NRF_GPIO_PIN_MAP(0, 15)
 
@@ -133,6 +136,7 @@ BLE_BAS_DEF(m_bas);
 NRF_BLE_GATT_DEF(m_gatt);
 NRF_BLE_QWR_DEF(m_qwr);
 BLE_ADVERTISING_DEF(m_advertising);
+APP_TIMER_DEF(m_status_led_timer);
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;
 static pm_peer_id_t m_peer_id = PM_PEER_ID_INVALID;
@@ -144,6 +148,31 @@ static ble_uuid_t m_adv_uuids[] =
 
 static void led_on(void)  { nrf_gpio_pin_set(LED_PIN); }
 static void led_off(void) { nrf_gpio_pin_clear(LED_PIN); }
+
+static void status_led_timeout_handler(void * p_context)
+{
+    (void)p_context;
+    if (m_conn_handle == BLE_CONN_HANDLE_INVALID)
+    {
+        nrf_gpio_pin_toggle(LED_PIN);
+    }
+    else
+    {
+        led_off();
+    }
+}
+
+static void status_led_start(void)
+{
+    ret_code_t err = app_timer_start(m_status_led_timer, STATUS_LED_BLINK_INTERVAL, NULL);
+    APP_ERROR_CHECK(err);
+}
+
+static void status_led_stop(void)
+{
+    (void)app_timer_stop(m_status_led_timer);
+    led_off();
+}
 
 void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)
 {
@@ -175,6 +204,9 @@ static void fds_evt_handler(fds_evt_t const * p_evt)
 static void timers_init(void)
 {
     ret_code_t err = app_timer_init();
+    APP_ERROR_CHECK(err);
+
+    err = app_timer_create(&m_status_led_timer, APP_TIMER_MODE_REPEATED, status_led_timeout_handler);
     APP_ERROR_CHECK(err);
 }
 
@@ -692,16 +724,16 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
     {
         case BLE_GAP_EVT_CONNECTED:
             uart_log("BLE: connected\r\n");
-            led_on();
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             APP_ERROR_CHECK(nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle));
+            status_led_stop();
             break;
 
         case BLE_GAP_EVT_DISCONNECTED:
             uart_log("BLE: disconnected\r\n");
-            led_off();
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
             m_peer_id = PM_PEER_ID_INVALID;
+            status_led_start();
             break;
 
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
@@ -857,6 +889,7 @@ int main(void)
 
     advertising_start(erase_bonds);
     uart_log("*** READY: pair from iOS Bluetooth settings ***\r\n");
+    status_led_start();
 
     for (;;)
     {
