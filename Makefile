@@ -27,19 +27,14 @@ GNU_PREFIX := arm-none-eabi
 OUTPUT_DIRECTORY := _build
 
 # Source files
-SRC_FILES += \
-  $(SDK_ROOT)/modules/nrfx/mdk/gcc_startup_nrf52840.S \
-  $(SDK_ROOT)/modules/nrfx/mdk/system_nrf52840.c \
-  $(SDK_ROOT)/components/libraries/log/src/nrf_log_backend_rtt.c \
-  $(SDK_ROOT)/components/libraries/log/src/nrf_log_backend_serial.c \
-  $(SDK_ROOT)/components/libraries/log/src/nrf_log_default_backends.c \
-  $(SDK_ROOT)/components/libraries/log/src/nrf_log_frontend.c \
-  $(SDK_ROOT)/components/libraries/log/src/nrf_log_str_formatter.c \
-  $(SDK_ROOT)/components/libraries/util/app_error.c \
-  $(SDK_ROOT)/components/libraries/util/app_error_handler_gcc.c \
-  $(SDK_ROOT)/components/libraries/util/app_error_weak.c \
-  $(SDK_ROOT)/components/libraries/util/app_util_platform.c \
-  $(SDK_ROOT)/components/libraries/util/nrf_assert.c \
+	SRC_FILES += \
+	  $(SDK_ROOT)/modules/nrfx/mdk/gcc_startup_nrf52840.S \
+	  $(SDK_ROOT)/modules/nrfx/mdk/system_nrf52840.c \
+	  $(SDK_ROOT)/components/libraries/util/app_error.c \
+	  $(SDK_ROOT)/components/libraries/util/app_error_handler_gcc.c \
+	  $(SDK_ROOT)/components/libraries/util/app_error_weak.c \
+	  $(SDK_ROOT)/components/libraries/util/app_util_platform.c \
+	  $(SDK_ROOT)/components/libraries/util/nrf_assert.c \
   $(SDK_ROOT)/components/libraries/timer/app_timer.c \
   $(SDK_ROOT)/components/libraries/atomic/nrf_atomic.c \
   $(SDK_ROOT)/components/libraries/atomic_fifo/nrf_atfifo.c \
@@ -60,15 +55,19 @@ SRC_FILES += \
   $(SDK_ROOT)/external/segger_rtt/SEGGER_RTT.c \
   $(SDK_ROOT)/external/segger_rtt/SEGGER_RTT_Syscalls_GCC.c \
   $(SDK_ROOT)/external/segger_rtt/SEGGER_RTT_printf.c \
-  $(SDK_ROOT)/components/ble/common/ble_advdata.c \
-  $(SDK_ROOT)/components/ble/common/ble_conn_params.c \
-  $(SDK_ROOT)/components/ble/common/ble_conn_state.c \
-  $(SDK_ROOT)/components/ble/common/ble_srv_common.c \
-  $(SDK_ROOT)/components/ble/ble_advertising/ble_advertising.c \
-  $(SDK_ROOT)/components/ble/nrf_ble_gatt/nrf_ble_gatt.c \
-  $(SDK_ROOT)/components/ble/nrf_ble_qwr/nrf_ble_qwr.c \
-  $(SDK_ROOT)/components/ble/peer_manager/peer_manager.c \
-  $(SDK_ROOT)/components/ble/peer_manager/peer_manager_handler.c \
+	  $(SDK_ROOT)/components/ble/common/ble_advdata.c \
+	  $(SDK_ROOT)/components/ble/common/ble_conn_params.c \
+	  $(SDK_ROOT)/components/ble/common/ble_conn_state.c \
+	  $(SDK_ROOT)/components/ble/common/ble_srv_common.c \
+	  $(SDK_ROOT)/components/ble/ble_link_ctx_manager/ble_link_ctx_manager.c \
+	  $(SDK_ROOT)/components/ble/ble_services/ble_bas/ble_bas.c \
+	  $(SDK_ROOT)/components/ble/ble_services/ble_dis/ble_dis.c \
+	  $(SDK_ROOT)/components/ble/ble_services/ble_hids/ble_hids.c \
+	  $(SDK_ROOT)/components/ble/ble_advertising/ble_advertising.c \
+	  $(SDK_ROOT)/components/ble/nrf_ble_gatt/nrf_ble_gatt.c \
+	  $(SDK_ROOT)/components/ble/nrf_ble_qwr/nrf_ble_qwr.c \
+	  $(SDK_ROOT)/components/ble/peer_manager/peer_manager.c \
+	  $(SDK_ROOT)/components/ble/peer_manager/peer_manager_handler.c \
   $(SDK_ROOT)/components/ble/peer_manager/peer_database.c \
   $(SDK_ROOT)/components/ble/peer_manager/peer_data_storage.c \
   $(SDK_ROOT)/components/ble/peer_manager/peer_id.c \
@@ -80,32 +79,32 @@ SRC_FILES += \
   $(SDK_ROOT)/components/ble/peer_manager/pm_buffer.c \
   $(SDK_ROOT)/components/ble/peer_manager/auth_status_tracker.c \
   $(SDK_ROOT)/components/ble/peer_manager/nrf_ble_lesc.c \
-  $(SDK_ROOT)/components/libraries/fds/fds.c \
-  $(SDK_ROOT)/components/libraries/fstorage/nrf_fstorage.c \
-  $(SDK_ROOT)/components/libraries/fstorage/nrf_fstorage_sd.c \
-  $(SDK_ROOT)/components/softdevice/common/nrf_sdh.c \
-  $(SDK_ROOT)/components/softdevice/common/nrf_sdh_ble.c \
-  $(SDK_ROOT)/components/softdevice/common/nrf_sdh_soc.c \
-  src/main.c \
-  src/ble_app.c \
-  src/ble_stack.c \
-  src/media_remote.c \
-  src/uart_log.c \
-  src/uart_log.c
+	  $(SDK_ROOT)/components/libraries/fds/fds.c \
+	  $(SDK_ROOT)/components/libraries/fstorage/nrf_fstorage.c \
+	  $(SDK_ROOT)/components/libraries/fstorage/nrf_fstorage_sd.c \
+	  $(SDK_ROOT)/components/softdevice/common/nrf_sdh.c \
+	  $(SDK_ROOT)/components/softdevice/common/nrf_sdh_ble.c \
+	  $(SDK_ROOT)/components/softdevice/common/nrf_sdh_soc.c \
+	  src/main.c \
+	  src/uart_log.c
 
 # Include paths - explicit list with SoftDevice headers first
-INC_FOLDERS += \
-  config \
-  src \
-  $(SDK_ROOT)/components/softdevice/s140/headers \
-  $(SDK_ROOT)/components/softdevice/s140/headers/nrf52 \
-  $(SDK_ROOT)/components/softdevice/common \
-  $(SDK_ROOT)/components/ble/common \
-  $(SDK_ROOT)/components/ble/ble_advertising \
-  $(SDK_ROOT)/components/ble/nrf_ble_gatt \
-  $(SDK_ROOT)/components/ble/nrf_ble_qwr \
-  $(SDK_ROOT)/components/ble/peer_manager \
-  $(SDK_ROOT)/components/boards \
+	INC_FOLDERS += \
+	  config \
+	  src \
+	  $(SDK_ROOT)/components/softdevice/s140/headers \
+	  $(SDK_ROOT)/components/softdevice/s140/headers/nrf52 \
+	  $(SDK_ROOT)/components/softdevice/common \
+	  $(SDK_ROOT)/components/ble/common \
+	  $(SDK_ROOT)/components/ble/ble_link_ctx_manager \
+	  $(SDK_ROOT)/components/ble/ble_advertising \
+	  $(SDK_ROOT)/components/ble/ble_services/ble_bas \
+	  $(SDK_ROOT)/components/ble/ble_services/ble_dis \
+	  $(SDK_ROOT)/components/ble/ble_services/ble_hids \
+	  $(SDK_ROOT)/components/ble/nrf_ble_gatt \
+	  $(SDK_ROOT)/components/ble/nrf_ble_qwr \
+	  $(SDK_ROOT)/components/ble/peer_manager \
+	  $(SDK_ROOT)/components/boards \
   $(SDK_ROOT)/components/libraries/atomic \
   $(SDK_ROOT)/components/libraries/atomic_fifo \
   $(SDK_ROOT)/components/libraries/atomic_flags \
@@ -134,9 +133,9 @@ INC_FOLDERS += \
   $(SDK_ROOT)/modules/nrfx/hal \
   $(SDK_ROOT)/modules/nrfx/mdk
 
-# SoftDevice
+# SoftDevice (SDK 15.3.0 ships with S140 v6.1.1)
 SOFTDEVICE_MODEL := s140
-SOFTDEVICE_VERSION := 7.3.0
+SOFTDEVICE_VERSION := 6.1.1
 SOFTDEVICE_HEX := $(SDK_ROOT)/components/softdevice/$(SOFTDEVICE_MODEL)/hex/$(SOFTDEVICE_MODEL)_nrf52_$(SOFTDEVICE_VERSION)_softdevice.hex
 
 # Target MCU

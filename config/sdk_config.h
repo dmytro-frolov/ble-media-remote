@@ -327,7 +327,7 @@
 // <e> BLE_BAS_ENABLED - ble_bas - Battery Service
 //==========================================================
 #ifndef BLE_BAS_ENABLED
-#define BLE_BAS_ENABLED 0
+#define BLE_BAS_ENABLED 1
 #endif
 // <e> BLE_BAS_CONFIG_LOG_ENABLED - Enables logging in the module.
 //==========================================================
@@ -400,7 +400,7 @@
  
 
 #ifndef BLE_DIS_ENABLED
-#define BLE_DIS_ENABLED 0
+#define BLE_DIS_ENABLED 1
 #endif
 
 // <q> BLE_GLS_ENABLED  - ble_gls - Glucose Service
@@ -414,7 +414,7 @@
  
 
 #ifndef BLE_HIDS_ENABLED
-#define BLE_HIDS_ENABLED 0
+#define BLE_HIDS_ENABLED 1
 #endif
 
 // <q> BLE_HRS_C_ENABLED  - ble_hrs_c - Heart Rate Service Client
@@ -7765,7 +7765,7 @@
 // <e> NRF_LOG_ENABLED - nrf_log - Logger
 //==========================================================
 #ifndef NRF_LOG_ENABLED
-#define NRF_LOG_ENABLED 1
+#define NRF_LOG_ENABLED 0
 #endif
 // <h> Log message pool - Configuration of log message pool
 
@@ -11465,7 +11465,7 @@
 
 // <o> NRF_SDH_BLE_GATTS_ATTR_TAB_SIZE - Attribute Table size in bytes. The size must be a multiple of 4. 
 #ifndef NRF_SDH_BLE_GATTS_ATTR_TAB_SIZE
-#define NRF_SDH_BLE_GATTS_ATTR_TAB_SIZE 248
+#define NRF_SDH_BLE_GATTS_ATTR_TAB_SIZE 1408
 #endif
 
 // <o> NRF_SDH_BLE_VS_UUID_COUNT - The number of vendor-specific UUIDs. 
@@ -11502,6 +11502,13 @@
 
 #ifndef BLE_ADV_BLE_OBSERVER_PRIO
 #define BLE_ADV_BLE_OBSERVER_PRIO 1
+#endif
+
+// <o> BLE_ADV_SOC_OBSERVER_PRIO
+// <i> Priority with which SoC events are dispatched to the Advertising module.
+
+#ifndef BLE_ADV_SOC_OBSERVER_PRIO
+#define BLE_ADV_SOC_OBSERVER_PRIO 1
 #endif
 
 // <o> BLE_ANCS_C_BLE_OBSERVER_PRIO  
