@@ -72,8 +72,8 @@
 // Battery Service updates (to iOS).
 #define BATTERY_UPDATE_INTERVAL         APP_TIMER_TICKS(60000)
 #define BATTERY_SAADC_CHANNEL           0
-// Battery sense wiring (recommended): BAT+ -> 1M -> (P0.02/AIN0) -> 1M -> GND
-#define BATTERY_SAADC_INPUT             NRF_SAADC_INPUT_AIN0
+// Battery sense wiring: BAT+ -> 1M -> (P0.04/AIN2) -> 1M -> GND
+#define BATTERY_SAADC_INPUT             NRF_SAADC_INPUT_AIN2
 #define BATTERY_DIVIDER_NUM             2
 #define BATTERY_DIVIDER_DEN             1
 #define BATTERY_MV_FULL                 4200

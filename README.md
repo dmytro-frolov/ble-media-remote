@@ -130,8 +130,8 @@ To measure the actual LiPo voltage (so iOS battery % makes sense), wire a **batt
 
 Current default wiring in firmware (`src/main.c`):
 
-- `BAT+` -> **1M** -> `P0.02 (AIN0)` -> **1M** -> `GND`
-- (Optional) add **0.1uF** from `P0.02` to `GND` for steadier readings.
+- `BAT+` -> **1M** -> `P0.04 (AIN2)` -> **1M** -> `GND`
+- (Optional) add **0.1uF** from `P0.04` to `GND` for steadier readings.
 
 The divider is required because a full LiPo is ~4.2V, while the nRF52840 analog input must stay <= `VDD` (~3.3V).
 
