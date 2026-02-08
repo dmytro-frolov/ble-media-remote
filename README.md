@@ -112,6 +112,16 @@ Run the setup script to check and install dependencies:
 - Media control buttons (Play/Pause, Next, Previous, Volume)
 - Low power operation
 
+## Erasing Bonds (Pairing Reset)
+
+The firmware uses bonding (Peer Manager). If iOS refuses to reconnect, or you want to pair a different phone, erase the stored bonds:
+
+1. Press and hold the **Play/Pause** button (`P0.22`, active-low).
+2. While holding it, **reset/power-cycle** the nice!nano.
+3. Release the button after boot. The device will delete bonds and start advertising again.
+
+Tip: on iOS you may also need to go to Bluetooth settings and tap **“Forget This Device”** for the old pairing.
+
 ## Building
 
 ```bash
