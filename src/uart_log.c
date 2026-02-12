@@ -2,6 +2,9 @@
  * Logging via hardware UART0 (blocking TX only)
  */
 #include "uart_log.h"
+
+#if APP_UART_LOG_ENABLED
+
 #include "nrf_uart.h"
 #include "nrf_gpio.h"
 #include <stdio.h>
@@ -58,3 +61,11 @@ void uart_log_hex(const char* str, uint32_t val)
     snprintf(buf, sizeof(buf), "0x%08lX\r\n", (unsigned long)val);
     uart_log(buf);
 }
+
+#else
+
+void uart_log_init(void) {}
+void uart_log(const char * str) { (void)str; }
+void uart_log_hex(const char * prefix, uint32_t val) { (void)prefix; (void)val; }
+
+#endif

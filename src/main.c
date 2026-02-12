@@ -83,11 +83,17 @@
 #define LED_PIN                         NRF_GPIO_PIN_MAP(0, 15)
 
 // Buttons (active low with internal pull-up)
-#define BUTTON_PLAY_PAUSE_PIN           NRF_GPIO_PIN_MAP(0, 22)
-#define BUTTON_NEXT_PIN                 NRF_GPIO_PIN_MAP(0, 6)
+// #define FREE_UNUSED_PIN                 NRF_GPIO_PIN_MAP(0, 22)
+
+//  8 / 31 / 29 / 2
+//         / 6
+
+
+#define BUTTON_PLAY_PAUSE_PIN           NRF_GPIO_PIN_MAP(0, 8)
+#define BUTTON_NEXT_PIN                 NRF_GPIO_PIN_MAP(0, 31)
 #define BUTTON_PREV_PIN                 NRF_GPIO_PIN_MAP(0, 29)
-#define BUTTON_VOL_UP_PIN               NRF_GPIO_PIN_MAP(0, 8)
-#define BUTTON_VOL_DOWN_PIN             NRF_GPIO_PIN_MAP(0, 31)
+#define BUTTON_VOL_UP_PIN               NRF_GPIO_PIN_MAP(0, 2)
+#define BUTTON_VOL_DOWN_PIN             NRF_GPIO_PIN_MAP(0, 6)  
 
 #define BUTTON_SAMPLE_MS                10
 #define BUTTON_DEBOUNCE_SAMPLES         5      /* 50 ms */
@@ -120,27 +126,15 @@ static const button_cfg_t BUTTONS[] =
 #define BUTTON_COUNT (sizeof(BUTTONS) / sizeof(BUTTONS[0]))
 
 // HID definitions
-#define INPUT_REPORT_KEYS_MAX_LEN       8
 #define INPUT_REPORT_CONSUMER_MAX_LEN   2
-#define OUTPUT_REPORT_MAX_LEN           1
-#define FEATURE_REPORT_MAX_LEN          2
 
-#define INPUT_REP_REF_ID_KEYBOARD       1
-#define OUTPUT_REP_REF_ID_KEYBOARD      1
-#define FEATURE_REP_REF_ID_KEYBOARD     1
-#define INPUT_REP_REF_ID_CONSUMER       2
+#define INPUT_REP_REF_ID_CONSUMER       1
 
-#define INPUT_REPORT_INDEX_KEYBOARD     0
-#define INPUT_REPORT_INDEX_CONSUMER     1
-#define OUTPUT_REPORT_INDEX             0
-#define FEATURE_REPORT_INDEX            0
+#define INPUT_REPORT_INDEX_CONSUMER     0
 
 BLE_HIDS_DEF(m_hids,
-             NRF_SDH_BLE_TOTAL_LINK_COUNT,
-             INPUT_REPORT_KEYS_MAX_LEN,
-             INPUT_REPORT_CONSUMER_MAX_LEN,
-             OUTPUT_REPORT_MAX_LEN,
-             FEATURE_REPORT_MAX_LEN);
+	         NRF_SDH_BLE_TOTAL_LINK_COUNT,
+	         INPUT_REPORT_CONSUMER_MAX_LEN);
 
 BLE_BAS_DEF(m_bas);
 NRF_BLE_GATT_DEF(m_gatt);
@@ -346,7 +340,8 @@ static void gap_params_init(void)
     err = sd_ble_gap_device_name_set(&sec_mode, (uint8_t const *)DEVICE_NAME, strlen(DEVICE_NAME));
     APP_ERROR_CHECK(err);
 
-    err = sd_ble_gap_appearance_set(BLE_APPEARANCE_HID_KEYBOARD);
+    // Avoid iOS treating this as a "keyboard"; we only expose Consumer Control media keys.
+    err = sd_ble_gap_appearance_set(BLE_APPEARANCE_GENERIC_REMOTE_CONTROL);
     APP_ERROR_CHECK(err);
 
     memset(&gap_conn_params, 0, sizeof(gap_conn_params));
@@ -437,64 +432,15 @@ static void on_hids_evt(ble_hids_t * p_hids, ble_hids_evt_t * p_evt)
 
 static void hids_init(void)
 {
-    static ble_hids_inp_rep_init_t     input_report_array[2];
-    static ble_hids_outp_rep_init_t    output_report_array[1];
-    static ble_hids_feature_rep_init_t feature_report_array[1];
+    static ble_hids_inp_rep_init_t input_report_array[1];
 
-    // Keyboard (Report ID 1) + Consumer Control (Report ID 2)
+    // Consumer Control only (no keyboard report) to reduce iOS "keyboard" prompts/behavior.
     static uint8_t report_map_data[] =
     {
-        /* ===== Keyboard (Report ID 1) ===== */
-        0x05, 0x01,       // Usage Page (Generic Desktop)
-        0x09, 0x06,       // Usage (Keyboard)
-        0xA1, 0x01,       // Collection (Application)
-        0x85, 0x01,       //   Report ID (1)
-        0x05, 0x07,       //   Usage Page (Key Codes)
-        0x19, 0xE0,       //   Usage Minimum (224)
-        0x29, 0xE7,       //   Usage Maximum (231)
-        0x15, 0x00,       //   Logical Minimum (0)
-        0x25, 0x01,       //   Logical Maximum (1)
-        0x75, 0x01,       //   Report Size (1)
-        0x95, 0x08,       //   Report Count (8)
-        0x81, 0x02,       //   Input (Data, Variable, Absolute) - modifiers
-
-        0x95, 0x01,       //   Report Count (1)
-        0x75, 0x08,       //   Report Size (8)
-        0x81, 0x01,       //   Input (Constant) - reserved
-
-        0x95, 0x05,       //   Report Count (5)
-        0x75, 0x01,       //   Report Size (1)
-        0x05, 0x08,       //   Usage Page (LEDs)
-        0x19, 0x01,       //   Usage Minimum (1)
-        0x29, 0x05,       //   Usage Maximum (5)
-        0x91, 0x02,       //   Output (Data, Variable, Absolute)
-
-        0x95, 0x01,       //   Report Count (1)
-        0x75, 0x03,       //   Report Size (3)
-        0x91, 0x01,       //   Output (Constant) - padding
-
-        0x95, 0x06,       //   Report Count (6)
-        0x75, 0x08,       //   Report Size (8)
-        0x15, 0x00,       //   Logical Minimum (0)
-        0x25, 0x65,       //   Logical Maximum (101)
-        0x05, 0x07,       //   Usage Page (Key Codes)
-        0x19, 0x00,       //   Usage Minimum (0)
-        0x29, 0x65,       //   Usage Maximum (101)
-        0x81, 0x00,       //   Input (Data, Array) - key array(6 bytes)
-
-        0x09, 0x05,       //   Usage (Vendor Defined)
-        0x15, 0x00,       //   Logical Minimum (0)
-        0x26, 0xFF, 0x00, //   Logical Maximum (255)
-        0x75, 0x08,       //   Report Size (8)
-        0x95, 0x02,       //   Report Count (2)
-        0xB1, 0x02,       //   Feature (Data, Variable, Absolute)
-        0xC0,             // End Collection (Application)
-
-        /* ===== Consumer Control (Report ID 2) ===== */
         0x05, 0x0C,       // Usage Page (Consumer)
         0x09, 0x01,       // Usage (Consumer Control)
         0xA1, 0x01,       // Collection (Application)
-        0x85, 0x02,       //   Report ID (2)
+        0x85, 0x01,       //   Report ID (1)
         0x15, 0x00,       //   Logical Minimum (0)
         0x26, 0x9C, 0x02, //   Logical Maximum (0x029C)
         0x19, 0x00,       //   Usage Minimum (0)
@@ -506,19 +452,7 @@ static void hids_init(void)
     };
 
     memset(input_report_array, 0, sizeof(input_report_array));
-    memset(output_report_array, 0, sizeof(output_report_array));
-    memset(feature_report_array, 0, sizeof(feature_report_array));
 
-    // Input report 0: keyboard
-    ble_hids_inp_rep_init_t * p_inp_kbd = &input_report_array[INPUT_REPORT_INDEX_KEYBOARD];
-    p_inp_kbd->max_len             = INPUT_REPORT_KEYS_MAX_LEN;
-    p_inp_kbd->rep_ref.report_id   = INPUT_REP_REF_ID_KEYBOARD;
-    p_inp_kbd->rep_ref.report_type = BLE_HIDS_REP_TYPE_INPUT;
-    p_inp_kbd->sec.cccd_wr         = SEC_JUST_WORKS;
-    p_inp_kbd->sec.rd              = SEC_JUST_WORKS;
-    p_inp_kbd->sec.wr              = SEC_JUST_WORKS;
-
-    // Input report 1: consumer control
     ble_hids_inp_rep_init_t * p_inp_cons = &input_report_array[INPUT_REPORT_INDEX_CONSUMER];
     p_inp_cons->max_len             = INPUT_REPORT_CONSUMER_MAX_LEN;
     p_inp_cons->rep_ref.report_id   = INPUT_REP_REF_ID_CONSUMER;
@@ -527,22 +461,6 @@ static void hids_init(void)
     p_inp_cons->sec.rd              = SEC_JUST_WORKS;
     p_inp_cons->sec.wr              = SEC_JUST_WORKS;
 
-    // Output report 0: keyboard LEDs (unused)
-    ble_hids_outp_rep_init_t * p_out = &output_report_array[OUTPUT_REPORT_INDEX];
-    p_out->max_len             = OUTPUT_REPORT_MAX_LEN;
-    p_out->rep_ref.report_id   = OUTPUT_REP_REF_ID_KEYBOARD;
-    p_out->rep_ref.report_type = BLE_HIDS_REP_TYPE_OUTPUT;
-    p_out->sec.rd              = SEC_JUST_WORKS;
-    p_out->sec.wr              = SEC_JUST_WORKS;
-
-    // Feature report 0: vendor defined (unused)
-    ble_hids_feature_rep_init_t * p_feat = &feature_report_array[FEATURE_REPORT_INDEX];
-    p_feat->max_len             = FEATURE_REPORT_MAX_LEN;
-    p_feat->rep_ref.report_id   = FEATURE_REP_REF_ID_KEYBOARD;
-    p_feat->rep_ref.report_type = BLE_HIDS_REP_TYPE_FEATURE;
-    p_feat->sec.rd              = SEC_JUST_WORKS;
-    p_feat->sec.wr              = SEC_JUST_WORKS;
-
     uint8_t hid_info_flags = HID_INFO_FLAG_REMOTE_WAKE_MSK | HID_INFO_FLAG_NORMALLY_CONNECTABLE_MSK;
 
     ble_hids_init_t hids_init_obj;
@@ -550,14 +468,14 @@ static void hids_init(void)
 
     hids_init_obj.evt_handler                    = on_hids_evt;
     hids_init_obj.error_handler                  = NULL;
-    hids_init_obj.is_kb                          = true;
+    hids_init_obj.is_kb                          = false;
     hids_init_obj.is_mouse                       = false;
-    hids_init_obj.inp_rep_count                  = 2;
+    hids_init_obj.inp_rep_count                  = 1;
     hids_init_obj.p_inp_rep_array                = input_report_array;
-    hids_init_obj.outp_rep_count                 = 1;
-    hids_init_obj.p_outp_rep_array               = output_report_array;
-    hids_init_obj.feature_rep_count              = 1;
-    hids_init_obj.p_feature_rep_array            = feature_report_array;
+    hids_init_obj.outp_rep_count                 = 0;
+    hids_init_obj.p_outp_rep_array               = NULL;
+    hids_init_obj.feature_rep_count              = 0;
+    hids_init_obj.p_feature_rep_array            = NULL;
     hids_init_obj.rep_map.data_len               = sizeof(report_map_data);
     hids_init_obj.rep_map.p_data                 = report_map_data;
     hids_init_obj.hid_information.bcd_hid        = BASE_USB_HID_SPEC_VERSION;
@@ -568,12 +486,6 @@ static void hids_init(void)
 
     hids_init_obj.rep_map.rd_sec                 = SEC_JUST_WORKS;
     hids_init_obj.hid_information.rd_sec         = SEC_JUST_WORKS;
-    hids_init_obj.boot_kb_inp_rep_sec.cccd_wr    = SEC_JUST_WORKS;
-    hids_init_obj.boot_kb_inp_rep_sec.rd         = SEC_JUST_WORKS;
-    hids_init_obj.boot_kb_outp_rep_sec.rd        = SEC_JUST_WORKS;
-    hids_init_obj.boot_kb_outp_rep_sec.wr        = SEC_JUST_WORKS;
-    hids_init_obj.protocol_mode_rd_sec           = SEC_JUST_WORKS;
-    hids_init_obj.protocol_mode_wr_sec           = SEC_JUST_WORKS;
     hids_init_obj.ctrl_point_wr_sec              = SEC_JUST_WORKS;
 
     ret_code_t err = ble_hids_init(&m_hids, &hids_init_obj);

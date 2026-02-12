@@ -146,6 +146,9 @@ TARGETS := nrf52840_xxaa
 # Linker script (nice!nano with S140 v6.1.1)
 LINKER_SCRIPT := nicenano.ld
 
+# Optional features (override on command line, e.g. `make UART_LOG=0`)
+UART_LOG ?= 1
+
 # Compiler flags
 CFLAGS += -DNRF52840_XXAA
 CFLAGS += -DNRF_SD_BLE_API_VERSION=6
@@ -165,6 +168,7 @@ CFLAGS += -fno-builtin -fshort-enums
 CFLAGS += -O3 -g3
 CFLAGS += -DDEBUG
 CFLAGS += -DDEBUG_NRF
+CFLAGS += -DAPP_UART_LOG_ENABLED=$(UART_LOG)
 
 # Assembler flags
 ASMFLAGS += -DNRF52840_XXAA

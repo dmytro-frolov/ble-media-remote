@@ -9,6 +9,10 @@
 
 #include <stdint.h>
 
+#ifndef APP_UART_LOG_ENABLED
+#define APP_UART_LOG_ENABLED 1
+#endif
+
 void uart_log_init(void);
 void uart_log(const char *str);
 void uart_log_hex(const char *prefix, uint32_t val);

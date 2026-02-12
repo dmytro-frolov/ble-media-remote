@@ -122,6 +122,17 @@ The firmware uses bonding (Peer Manager). If iOS refuses to reconnect, or you wa
 
 Tip: on iOS you may also need to go to Bluetooth settings and tap **“Forget This Device”** for the old pairing.
 
+## iOS Scanning Apps (nRF Connect, LightBlue, etc.)
+
+If you pair/connect the device from **iOS Settings** (HID host), iOS may keep it connected and other BLE apps may not be able to connect at the same time.
+
+- **LED blinking** = advertising (scanner apps can usually see/connect)
+- **LED off** = connected (often only iOS Settings is connected)
+
+## HID Type (Keyboard vs Remote)
+
+This firmware exposes **Consumer Control media keys only** (not a full keyboard). If you previously paired an older firmware version, you must **Forget This Device** on iOS and/or **erase bonds** on the nice!nano, then pair again.
+
 ## Battery Level (iOS)
 
 The firmware exposes the standard **Battery Service (BAS)** and periodically updates the battery level to iOS.
@@ -144,7 +155,11 @@ make clean
 # Build
 make
 
+# Build without UART logging (saves some power)
+make UART_LOG=0
+
 # Flash to device
+Short two times GND + RST to get into bootloader. Red light will breath and PC will display a flash drive
 make flash_nicenano
 
 # Erase device
