@@ -99,6 +99,8 @@
 #define BUTTON_DEBOUNCE_SAMPLES         5      /* 50 ms */
 #define BUTTON_HOLD_MS                  500
 #define BUTTON_HOLD_SAMPLES             (BUTTON_HOLD_MS / BUTTON_SAMPLE_MS)
+#define BUTTON_NEXT_LONG_HOLD_MS        3000
+#define BUTTON_NEXT_LONG_HOLD_SAMPLES   (BUTTON_NEXT_LONG_HOLD_MS / BUTTON_SAMPLE_MS)
 
 // Media key usage IDs (Consumer Page 0x0C)
 #define MEDIA_PLAY_PAUSE                0x00CD
@@ -118,7 +120,8 @@ static const button_cfg_t BUTTONS[] =
 {
     { BUTTON_PLAY_PAUSE_PIN, MEDIA_PLAY_PAUSE,    "Play/Pause" },
     { BUTTON_NEXT_PIN,       MEDIA_NEXT_TRACK,    "Next"       },
-    { BUTTON_PREV_PIN,       MEDIA_PREV_TRACK,    "Prev"       },
+    // { BUTTON_PREV_PIN,       MEDIA_PREV_TRACK,    "Prev"       },
+    { BUTTON_PREV_PIN,       MEDIA_VOL_UP,        "Vol Up"       },
     { BUTTON_VOL_UP_PIN,     MEDIA_VOL_UP,        "Vol Up"     },
     { BUTTON_VOL_DOWN_PIN,   MEDIA_VOL_DOWN,      "Vol Down"   },
 };
@@ -225,6 +228,16 @@ static uint32_t battery_measure_mv(void)
     return mv;
 }
 
+static void battery_measure_update_level(void)
+{
+    uint32_t mv = battery_measure_mv();
+    if (mv == 0)
+    {
+        return;
+    }
+    m_battery_level = battery_mv_to_percent(mv);
+}
+
 static void battery_update_process(void)
 {
     if (!m_battery_update_pending)
@@ -233,11 +246,7 @@ static void battery_update_process(void)
     }
     m_battery_update_pending = false;
 
-    uint32_t mv = battery_measure_mv();
-    if (mv != 0)
-    {
-        m_battery_level = battery_mv_to_percent(mv);
-    }
+    battery_measure_update_level();
 
     if (m_conn_handle != BLE_CONN_HANDLE_INVALID)
     {
@@ -744,6 +753,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             APP_ERROR_CHECK(nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle));
             status_led_stop();
+            battery_measure_update_level();
             (void)ble_bas_battery_level_update(&m_bas, m_battery_level, BLE_CONN_HANDLE_ALL);
             break;
 
@@ -752,6 +762,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
             m_peer_id = PM_PEER_ID_INVALID;
             status_led_start();
+            advertising_start(false);
             break;
 
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
@@ -780,7 +791,6 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
 }
 
 NRF_SDH_BLE_OBSERVER(m_ble_observer, APP_BLE_OBSERVER_PRIO, ble_evt_handler, NULL);
-NRF_SDH_BLE_OBSERVER(m_hids_observer, BLE_HIDS_BLE_OBSERVER_PRIO, ble_hids_on_ble_evt, &m_hids);
 
 static void gpio_init(void)
 {
@@ -834,6 +844,7 @@ static void button_poll_and_send(void)
     for (uint32_t i = 0; i < BUTTON_COUNT; i++)
     {
         bool raw_pressed = (nrf_gpio_pin_read(BUTTONS[i].pin) == 0);
+        bool is_next_btn = (BUTTONS[i].usage == MEDIA_NEXT_TRACK);
 
         if (raw_pressed == last_raw[i])
         {
@@ -852,9 +863,26 @@ static void button_poll_and_send(void)
         {
             if (raw_pressed != stable_pressed[i])
             {
-                stable_pressed[i] = raw_pressed;
-                hold_cnt[i] = 0;
-                fired[i] = false;
+                if (raw_pressed)
+                {
+                    stable_pressed[i] = true;
+                    hold_cnt[i] = 0;
+                    fired[i] = false;
+                }
+                else
+                {
+                    // Release: for NEXT, decide between short (Next) and long (Prev).
+                    stable_pressed[i] = false;
+                    if (is_next_btn && !fired[i] && (hold_cnt[i] >= BUTTON_HOLD_SAMPLES))
+                    {
+                        fired[i] = true;
+                        ret_code_t err = consumer_control_send(MEDIA_NEXT_TRACK);
+                        uart_log("BTN: Next\r\n");
+                        uart_log_hex(" err=", err);
+                    }
+                    hold_cnt[i] = 0;
+                    fired[i] = false;
+                }
             }
 
             if (stable_pressed[i] && !fired[i])
@@ -864,7 +892,17 @@ static void button_poll_and_send(void)
                     hold_cnt[i]++;
                 }
 
-                if (hold_cnt[i] >= BUTTON_HOLD_SAMPLES)
+                if (is_next_btn)
+                {
+                    if (hold_cnt[i] >= BUTTON_NEXT_LONG_HOLD_SAMPLES)
+                    {
+                        fired[i] = true;
+                        ret_code_t err = consumer_control_send(MEDIA_PREV_TRACK);
+                        uart_log("BTN: Next(long)->Prev\r\n");
+                        uart_log_hex(" err=", err);
+                    }
+                }
+                else if (hold_cnt[i] >= BUTTON_HOLD_SAMPLES)
                 {
                     fired[i] = true;
                     ret_code_t err = consumer_control_send(BUTTONS[i].usage);
@@ -894,6 +932,7 @@ int main(void)
     timers_init();
     power_management_init();
     battery_saadc_init();
+    battery_measure_update_level();
 
     fds_register(fds_evt_handler);
     APP_ERROR_CHECK(fds_init());
