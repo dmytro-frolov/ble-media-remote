@@ -72,12 +72,15 @@
 // Battery Service updates (to iOS).
 #define BATTERY_UPDATE_INTERVAL         APP_TIMER_TICKS(60000)
 #define BATTERY_SAADC_CHANNEL           0
-// Battery sense wiring: BAT+ -> 1M -> (P0.04/AIN2) -> 1M -> GND
+// nice!nano battery sense is wired to P0.04 (AIN2) through an on-board divider.
+// Divider ratio depends on board revision; common values are 1/2 or 1/3.
+// If iOS shows 0% while VBAT is ~4V, your divider is likely 1/3 => set NUM=3.
 #define BATTERY_SAADC_INPUT             NRF_SAADC_INPUT_AIN2
-#define BATTERY_DIVIDER_NUM             2
+#define BATTERY_DIVIDER_NUM             3
 #define BATTERY_DIVIDER_DEN             1
 #define BATTERY_MV_FULL                 4200
 #define BATTERY_MV_EMPTY                3300
+#define SAADC_FS_MV 15200u
 
 // nice!nano LED - P0.15
 #define LED_PIN                         NRF_GPIO_PIN_MAP(0, 15)
@@ -154,6 +157,7 @@ static uint8_t m_battery_level = 100;
 static ble_uuid_t m_adv_uuids[] =
 {
     { BLE_UUID_HUMAN_INTERFACE_DEVICE_SERVICE, BLE_UUID_TYPE_BLE },
+    { BLE_UUID_BATTERY_SERVICE,                BLE_UUID_TYPE_BLE },
 };
 
 static void led_on(void)  { nrf_gpio_pin_set(LED_PIN); }
@@ -209,6 +213,7 @@ static uint32_t battery_saadc_max_value(void)
 #endif
 }
 
+
 static uint32_t battery_measure_mv(void)
 {
     nrf_saadc_value_t raw = 0;
@@ -223,14 +228,27 @@ static uint32_t battery_measure_mv(void)
 
     // With INTERNAL 0.6V reference and GAIN1_6, full-scale ~= 3.6V at max raw.
     uint32_t max_raw = battery_saadc_max_value();
-    uint32_t mv = ((uint32_t)raw * 3600u + (max_raw / 2u)) / max_raw;
+    uint32_t mv = ((uint32_t)raw * SAADC_FS_MV + (max_raw / 2u)) / max_raw;
     mv = (mv * BATTERY_DIVIDER_NUM) / BATTERY_DIVIDER_DEN;
+    if (mv > 5000) mv = 5000;
     return mv;
 }
 
+static uint32_t battery_measure_mv_avg(void)
+{
+    uint32_t sum = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        sum += battery_measure_mv();
+        nrf_delay_ms(1);
+    }
+    return sum / 8;
+}
+
+
 static void battery_measure_update_level(void)
 {
-    uint32_t mv = battery_measure_mv();
+    uint32_t mv = battery_measure_mv_avg();
     if (mv == 0)
     {
         return;
@@ -250,7 +268,7 @@ static void battery_update_process(void)
 
     if (m_conn_handle != BLE_CONN_HANDLE_INVALID)
     {
-        (void)ble_bas_battery_level_update(&m_bas, m_battery_level, BLE_CONN_HANDLE_ALL);
+        (void)ble_bas_battery_level_update(&m_bas, m_battery_level, m_conn_handle);
     }
 }
 
@@ -754,7 +772,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             APP_ERROR_CHECK(nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle));
             status_led_stop();
             battery_measure_update_level();
-            (void)ble_bas_battery_level_update(&m_bas, m_battery_level, BLE_CONN_HANDLE_ALL);
+            (void)ble_bas_battery_level_update(&m_bas, m_battery_level, m_conn_handle);
             break;
 
         case BLE_GAP_EVT_DISCONNECTED:

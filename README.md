@@ -137,14 +137,13 @@ This firmware exposes **Consumer Control media keys only** (not a full keyboard)
 
 The firmware exposes the standard **Battery Service (BAS)** and periodically updates the battery level to iOS.
 
-To measure the actual LiPo voltage (so iOS battery % makes sense), wire a **battery sense divider** to an SAADC input.
+nice!nano reads battery voltage through `P0.04 (AIN2)` using an on-board divider. The divider ratio varies by board revision, so if the reported % is wrong, adjust `BATTERY_DIVIDER_NUM/DEN` near the top of `src/main.c`.
 
-Current default wiring in firmware (`src/main.c`):
+Quick sanity check with a multimeter:
 
-- `BAT+` -> **1M** -> `P0.04 (AIN2)` -> **1M** -> `GND`
-- (Optional) add **0.1uF** from `P0.04` to `GND` for steadier readings.
-
-The divider is required because a full LiPo is ~4.2V, while the nRF52840 analog input must stay <= `VDD` (~3.3V).
+- Measure `VBAT` (battery + to GND).
+- Measure `P0.04` to GND.
+- If `P0.04 ≈ VBAT/2` use `NUM=2`; if `P0.04 ≈ VBAT/3` use `NUM=3`.
 
 ## Building
 
