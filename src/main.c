@@ -80,7 +80,7 @@
 #define BATTERY_DIVIDER_DEN             1
 #define BATTERY_MV_FULL                 4200
 #define BATTERY_MV_EMPTY                3300
-#define SAADC_FS_MV 15200u
+#define SAADC_FS_MV                     14700u
 
 // nice!nano LED - P0.15
 #define LED_PIN                         NRF_GPIO_PIN_MAP(0, 15)
@@ -234,21 +234,23 @@ static uint32_t battery_measure_mv(void)
     return mv;
 }
 
-static uint32_t battery_measure_mv_avg(void)
-{
-    uint32_t sum = 0;
-    for (int i = 0; i < 8; i++)
-    {
-        sum += battery_measure_mv();
-        nrf_delay_ms(1);
-    }
-    return sum / 8;
-}
+// static uint32_t battery_measure_mv_avg(void)
+// {
+//     uint32_t sum = 0;
+//     for (int i = 0; i < 8; i++)
+//     {
+//         sum += battery_measure_mv();
+//         nrf_delay_ms(1);
+//     }
+//     return sum / 8;
+// }
 
 
 static void battery_measure_update_level(void)
 {
-    uint32_t mv = battery_measure_mv_avg();
+    // uint32_t mv = battery_measure_mv_avg();
+    uint32_t mv = battery_measure_mv();
+
     if (mv == 0)
     {
         return;
