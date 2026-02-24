@@ -61,6 +61,10 @@ make UART_LOG=1
 # Build with UART logs disabled
 make UART_LOG=0
 
+# If you previously built with logs enabled, do a clean build
+make clean
+make UART_LOG=0
+
 # Final release build (recommended)
 make UART_LOG=0
 
@@ -68,7 +72,7 @@ make UART_LOG=0
 make DEBUG_NRF=1
 
 # Flash nice!nano (logs stay enabled unless you built with UART_LOG=0)
-make flash_nicenano
+make UART_LOG=0 flash_nicenano
 
 # Connect your nRF52840 DK via USB
 # Flash the firmware
