@@ -70,7 +70,7 @@
 #define STATUS_LED_BLINK_INTERVAL       APP_TIMER_TICKS(250)
 
 // Battery Service updates (to iOS).
-#define BATTERY_UPDATE_INTERVAL         APP_TIMER_TICKS(60000)
+#define BATTERY_UPDATE_INTERVAL         APP_TIMER_TICKS(10000)
 #define BATTERY_SAADC_CHANNEL           0
 // nice!nano battery sense is wired to P0.04 (AIN2) through an on-board divider.
 // Divider ratio depends on board revision; common values are 1/2 or 1/3.
@@ -190,12 +190,33 @@ static void saadc_evt_handler(nrfx_saadc_evt_t const * p_event)
 static void battery_saadc_init(void)
 {
     nrfx_saadc_config_t config = NRFX_SAADC_DEFAULT_CONFIG;
-    APP_ERROR_CHECK(nrfx_saadc_init(&config, saadc_evt_handler));
+    ret_code_t rc = nrfx_saadc_init(&config, saadc_evt_handler);
+    if (rc != NRFX_SUCCESS && rc != NRFX_ERROR_INVALID_STATE)
+    {
+        uart_log("SAADC init err\r\n");
+        uart_log_hex(" rc=", rc);
+        uart_log("\r\n");
+        return;
+    }
+
+    rc = nrfx_saadc_calibrate_offset();
+    if (rc != NRFX_SUCCESS && rc != NRFX_ERROR_BUSY)
+    {
+        uart_log("SAADC calib err\r\n");
+        uart_log_hex(" rc=", rc);
+        uart_log("\r\n");
+    }
 
     nrf_saadc_channel_config_t ch = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(BATTERY_SAADC_INPUT);
     // Higher acquisition time helps when using a high-impedance divider (e.g. 1M/1M).
     ch.acq_time = NRF_SAADC_ACQTIME_40US;
-    APP_ERROR_CHECK(nrfx_saadc_channel_init(BATTERY_SAADC_CHANNEL, &ch));
+    rc = nrfx_saadc_channel_init(BATTERY_SAADC_CHANNEL, &ch);
+    if (rc != NRFX_SUCCESS)
+    {
+        uart_log("SAADC ch init err\r\n");
+        uart_log_hex(" rc=", rc);
+        uart_log("\r\n");
+    }
 }
 
 static uint32_t battery_saadc_max_value(void)
@@ -214,48 +235,40 @@ static uint32_t battery_saadc_max_value(void)
 }
 
 
-static uint32_t battery_measure_mv(void)
+
+static void battery_measure_update_level(void)
 {
     nrf_saadc_value_t raw = 0;
-    if (nrfx_saadc_sample_convert(BATTERY_SAADC_CHANNEL, &raw) != NRFX_SUCCESS)
+    ret_code_t rc = nrfx_saadc_sample_convert(BATTERY_SAADC_CHANNEL, &raw);
+    if (rc != NRFX_SUCCESS)
     {
-        return 0;
+        uart_log("SAADC sample err\r\n");
+        uart_log_hex(" rc=", rc);
+        uart_log("\r\n");
+        return;
     }
     if (raw < 0)
     {
         raw = 0;
     }
 
-    // With INTERNAL 0.6V reference and GAIN1_6, full-scale ~= 3.6V at max raw.
     uint32_t max_raw = battery_saadc_max_value();
-    uint32_t mv = ((uint32_t)raw * SAADC_FS_MV + (max_raw / 2u)) / max_raw;
-    mv = (mv * BATTERY_DIVIDER_NUM) / BATTERY_DIVIDER_DEN;
-    if (mv > 5000) mv = 5000;
-    return mv;
-}
-
-// static uint32_t battery_measure_mv_avg(void)
-// {
-//     uint32_t sum = 0;
-//     for (int i = 0; i < 8; i++)
-//     {
-//         sum += battery_measure_mv();
-//         nrf_delay_ms(1);
-//     }
-//     return sum / 8;
-// }
-
-
-static void battery_measure_update_level(void)
-{
-    // uint32_t mv = battery_measure_mv_avg();
-    uint32_t mv = battery_measure_mv();
-
-    if (mv == 0)
+    uint32_t vadc_mv = ((uint32_t)raw * SAADC_FS_MV + (max_raw / 2u)) / max_raw;
+    uint32_t vbat_mv = (vadc_mv * BATTERY_DIVIDER_NUM) / BATTERY_DIVIDER_DEN;
+    if (vbat_mv > 5000)
     {
-        return;
+        vbat_mv = 5000;
     }
-    m_battery_level = battery_mv_to_percent(mv);
+
+    uint8_t pct = battery_mv_to_percent(vbat_mv);
+    m_battery_level = pct;
+
+    uart_log("BAT ");
+    uart_log_hex("raw=", (uint32_t)raw);
+    uart_log_hex(" vadc_mv=", vadc_mv);
+    uart_log_hex(" vbat_mv=", vbat_mv);
+    uart_log_hex(" pct=", pct);
+    uart_log("\r\n");
 }
 
 static void battery_update_process(void)
