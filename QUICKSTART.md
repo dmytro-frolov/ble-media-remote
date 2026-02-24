@@ -55,6 +55,21 @@ cp ~/nrf5_sdk/nRF5_SDK_17.1.0_ddde560/examples/ble_peripheral/ble_app_uart/pca10
 # Build the project
 make
 
+# Build with UART logs enabled (default)
+make UART_LOG=1
+
+# Build with UART logs disabled
+make UART_LOG=0
+
+# Final release build (recommended)
+make UART_LOG=0
+
+# Enable DEBUG_NRF define (optional)
+make DEBUG_NRF=1
+
+# Flash nice!nano (logs stay enabled unless you built with UART_LOG=0)
+make flash_nicenano
+
 # Connect your nRF52840 DK via USB
 # Flash the firmware
 make flash

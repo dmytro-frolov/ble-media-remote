@@ -167,7 +167,12 @@ CFLAGS += -ffunction-sections -fdata-sections -fno-strict-aliasing
 CFLAGS += -fno-builtin -fshort-enums
 CFLAGS += -O3 -g3
 CFLAGS += -DDEBUG
+
+# Optional debug define (set DEBUG_NRF=1 to enable)
+DEBUG_NRF ?= 0
+ifeq ($(DEBUG_NRF),1)
 CFLAGS += -DDEBUG_NRF
+endif
 # CFLAGS += -DAPP_UART_LOG_ENABLED=$(UART_LOG)
 
 # Assembler flags

@@ -70,7 +70,7 @@
 #define STATUS_LED_BLINK_INTERVAL       APP_TIMER_TICKS(250)
 
 // Battery Service updates (to iOS).
-#define BATTERY_UPDATE_INTERVAL         APP_TIMER_TICKS(10000)
+#define BATTERY_UPDATE_INTERVAL         APP_TIMER_TICKS(60000)
 #define BATTERY_SAADC_CHANNEL           0
 // nice!nano battery sense is wired to P0.04 (AIN2) through an on-board divider.
 // Divider ratio depends on board revision; common values are 1/2 or 1/3.
@@ -255,10 +255,6 @@ static void battery_measure_update_level(void)
     uint32_t max_raw = battery_saadc_max_value();
     uint32_t vadc_mv = raw * SAADC_FS_MV / max_raw;
     uint32_t vbat_mv = (vadc_mv * BATTERY_DIVIDER_NUM) / BATTERY_DIVIDER_DEN;
-    // if (vbat_mv > 5000)
-    // {
-    //     vbat_mv = 5000;
-    // }
 
     uint8_t pct = battery_mv_to_percent(vbat_mv);
     m_battery_level = pct;
