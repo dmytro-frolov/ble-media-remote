@@ -37,6 +37,7 @@
 #include "peer_manager_handler.h"
 #include "fds.h"
 #include "nrf_pwr_mgmt.h"
+#include "nrf_power.h"
 
 #include "nrf_ble_gatt.h"
 #include "nrf_ble_qwr.h"
@@ -81,6 +82,7 @@
 #define BATTERY_MV_FULL                 4200
 #define BATTERY_MV_EMPTY                3300
 #define SAADC_FS_MV                     3600u
+#define BATTERY_PRESENT_MIN_MV          2000u
 
 // nice!nano LED - P0.15
 #define LED_PIN                         NRF_GPIO_PIN_MAP(0, 15)
@@ -255,6 +257,13 @@ static void battery_measure_update_level(void)
     uint32_t max_raw = battery_saadc_max_value();
     uint32_t vadc_mv = raw * SAADC_FS_MV / max_raw;
     uint32_t vbat_mv = (vadc_mv * BATTERY_DIVIDER_NUM) / BATTERY_DIVIDER_DEN;
+
+    if (vbat_mv < BATTERY_PRESENT_MIN_MV)
+    {
+        m_battery_level = 0;
+        uart_log("BAT no battery -> force 0%\r\n");
+        return;
+    }
 
     uint8_t pct = battery_mv_to_percent(vbat_mv);
     m_battery_level = pct;
