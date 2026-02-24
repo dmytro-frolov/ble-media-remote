@@ -80,7 +80,7 @@
 #define BATTERY_DIVIDER_DEN             1
 #define BATTERY_MV_FULL                 4200
 #define BATTERY_MV_EMPTY                3300
-#define SAADC_FS_MV                     14700u
+#define SAADC_FS_MV                     3600u
 
 // nice!nano LED - P0.15
 #define LED_PIN                         NRF_GPIO_PIN_MAP(0, 15)
@@ -253,12 +253,12 @@ static void battery_measure_update_level(void)
     }
 
     uint32_t max_raw = battery_saadc_max_value();
-    uint32_t vadc_mv = ((uint32_t)raw * SAADC_FS_MV + (max_raw / 2u)) / max_raw;
+    uint32_t vadc_mv = raw * SAADC_FS_MV / max_raw;
     uint32_t vbat_mv = (vadc_mv * BATTERY_DIVIDER_NUM) / BATTERY_DIVIDER_DEN;
-    if (vbat_mv > 5000)
-    {
-        vbat_mv = 5000;
-    }
+    // if (vbat_mv > 5000)
+    // {
+    //     vbat_mv = 5000;
+    // }
 
     uint8_t pct = battery_mv_to_percent(vbat_mv);
     m_battery_level = pct;
@@ -267,6 +267,7 @@ static void battery_measure_update_level(void)
     uart_log_hex("raw=", (uint32_t)raw);
     uart_log_hex(" vadc_mv=", vadc_mv);
     uart_log_hex(" vbat_mv=", vbat_mv);
+    uart_log_hex(" max_raw=", max_raw);
     uart_log_hex(" pct=", pct);
     uart_log("\r\n");
 }
